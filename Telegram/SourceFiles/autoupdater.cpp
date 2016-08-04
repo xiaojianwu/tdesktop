@@ -20,9 +20,22 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 
 #include "stdafx.h"
+
+#include "autoupdater.h"
+
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/bio.h>
+#include <openssl/err.h>
+
+#ifdef Q_OS_WIN // use Lzma SDK for win
+#include <LzmaLib.h>
+#else // Q_OS_WIN
+#include <lzma.h>
+#endif // else of Q_OS_WIN
+
 #include "application.h"
 #include "pspecific.h"
-#include "autoupdater.h"
 
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
 
@@ -51,7 +64,7 @@ void UpdateChecker::initOutput() {
 		fileName = m.captured(1).replace(QRegularExpression(qsl("[^a-zA-Z0-9_\\-]")), QString());
 	}
 	if (fileName.isEmpty()) {
-		fileName = qsl("tupdate-%1").arg(MTP::nonce<uint32>() % 1000000);
+		fileName = qsl("tupdate-%1").arg(rand_value<uint32>() % 1000000);
 	}
 	QString dirStr = cWorkingDir() + qsl("tupdates/");
 	fileName = dirStr + fileName;
@@ -263,15 +276,15 @@ void UpdateChecker::unpackUpdate() {
 		return fatalFail();
 	}
 
-	RSA *pbKey = PEM_read_bio_RSAPublicKey(BIO_new_mem_buf(const_cast<char*>(DevVersion ? UpdatesPublicDevKey : UpdatesPublicKey), -1), 0, 0, 0);
+	RSA *pbKey = PEM_read_bio_RSAPublicKey(BIO_new_mem_buf(const_cast<char*>(AppAlphaVersion ? UpdatesPublicAlphaKey : UpdatesPublicKey), -1), 0, 0, 0);
 	if (!pbKey) {
 		LOG(("Update Error: cant read public rsa key!"));
 		return fatalFail();
 	}
 	if (RSA_verify(NID_sha1, (const uchar*)(compressed.constData() + hSigLen), hShaLen, (const uchar*)(compressed.constData()), hSigLen, pbKey) != 1) { // verify signature
 		RSA_free(pbKey);
-		if (cDevVersion() || cBetaVersion()) { // try other public key, if we are in dev or beta version
-			pbKey = PEM_read_bio_RSAPublicKey(BIO_new_mem_buf(const_cast<char*>(DevVersion ? UpdatesPublicKey : UpdatesPublicDevKey), -1), 0, 0, 0);
+		if (cAlphaVersion() || cBetaVersion()) { // try other public key, if we are in alpha or beta version
+			pbKey = PEM_read_bio_RSAPublicKey(BIO_new_mem_buf(const_cast<char*>(AppAlphaVersion ? UpdatesPublicKey : UpdatesPublicAlphaKey), -1), 0, 0, 0);
 			if (!pbKey) {
 				LOG(("Update Error: cant read public rsa key!"));
 				return fatalFail();
@@ -556,7 +569,7 @@ bool checkReadyUpdate() {
 	}
 #elif defined Q_OS_MAC
 	QDir().mkpath(QFileInfo(curUpdater).absolutePath());
-	DEBUG_LOG(("Update Info: moving %1 to %2..").arg(updater.absoluteFilePath()).arg(curUpdater));
+	DEBUG_LOG(("Update Info: moving %1 to %2...").arg(updater.absoluteFilePath()).arg(curUpdater));
 	if (!objc_moveFile(updater.absoluteFilePath(), curUpdater)) {
 		UpdateChecker::clearAll();
 		return false;

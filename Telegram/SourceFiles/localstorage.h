@@ -20,7 +20,7 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "types.h"
+#include "core/basic_types.h"
 
 namespace _local_inner {
 
@@ -105,17 +105,22 @@ namespace Local {
 
 	int32 oldSettingsVersion();
 
+	using TextWithTags = FlatTextarea::TextWithTags;
 	struct MessageDraft {
-		MessageDraft(MsgId msgId = 0, QString text = QString(), bool previewCancelled = false) : msgId(msgId), text(text), previewCancelled(previewCancelled) {
+		MessageDraft(MsgId msgId = 0, TextWithTags textWithTags = TextWithTags(), bool previewCancelled = false)
+			: msgId(msgId)
+			, textWithTags(textWithTags)
+			, previewCancelled(previewCancelled) {
 		}
 		MsgId msgId;
-		QString text;
+		TextWithTags textWithTags;
 		bool previewCancelled;
 	};
-	void writeDrafts(const PeerId &peer, const MessageDraft &msgDraft, const MessageDraft &editDraft);
+	void writeDrafts(const PeerId &peer, const MessageDraft &localDraft, const MessageDraft &editDraft);
 	void readDraftsWithCursors(History *h);
-	void writeDraftCursors(const PeerId &peer, const MessageCursor &msgCursor, const MessageCursor &editCursor);
+	void writeDraftCursors(const PeerId &peer, const MessageCursor &localCursor, const MessageCursor &editCursor);
 	bool hasDraftCursors(const PeerId &peer);
+	bool hasDraft(const PeerId &peer);
 
 	void writeFileLocation(MediaKey location, const FileLocation &local);
 	FileLocation readFileLocation(MediaKey location, bool check = true);
@@ -129,12 +134,13 @@ namespace Local {
 	void writeStickerImage(const StorageKey &location, const QByteArray &data, bool overwrite = true);
 	TaskId startStickerImageLoad(const StorageKey &location, mtpFileLoader *loader);
 	bool willStickerImageLoad(const StorageKey &location);
-	void copyStickerImage(const StorageKey &oldLocation, const StorageKey &newLocation);
+	bool copyStickerImage(const StorageKey &oldLocation, const StorageKey &newLocation);
 	int32 hasStickers();
 	qint64 storageStickersSize();
 
 	void writeAudio(const StorageKey &location, const QByteArray &data, bool overwrite = true);
 	TaskId startAudioLoad(const StorageKey &location, mtpFileLoader *loader);
+	bool copyAudio(const StorageKey &oldLocation, const StorageKey &newLocation);
 	int32 hasAudios();
 	qint64 storageAudiosSize();
 

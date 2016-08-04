@@ -20,13 +20,12 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "gui/flatbutton.h"
-#include "gui/flatcheckbox.h"
+#include "ui/flatbutton.h"
+#include "ui/flatcheckbox.h"
 #include "sysbuttons.h"
+#include "core/observer.h"
 
-#include <QtWidgets/QWidget>
-
-class Window;
+class MainWindow;
 class Settings;
 
 class Slider : public QWidget {
@@ -57,7 +56,11 @@ private:
 
 };
 
-class SettingsInner : public TWidget, public RPCSender {
+namespace Notify {
+struct PeerUpdate;
+} // namespace Notify
+
+class SettingsInner : public TWidget, public RPCSender, public Notify::Observer {
 	Q_OBJECT
 
 public:
@@ -101,10 +104,10 @@ public slots:
 	void onUpdatePhoto();
 	void onUpdatePhotoCancel();
 
-	#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
 	void onAutoUpdate();
 	void onCheckNow();
-	#endif
+#endif
 	void onRestartNow();
 
 	void onFullPeerUpdated(PeerData *peer);
@@ -116,7 +119,9 @@ public slots:
 	void onPasswordOff();
 	void onReloadPassword(Qt::ApplicationState state = Qt::ApplicationActive);
 
+#ifndef TDESKTOP_DISABLE_NETWORK_PROXY
 	void onConnectionType();
+#endif
 
 	void onUsername();
 
@@ -162,13 +167,13 @@ public slots:
 
 	void onLocalStorageClear();
 
-	#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
 	void onUpdateChecking();
 	void onUpdateLatest();
 	void onUpdateDownloading(qint64 ready, qint64 total);
 	void onUpdateReady();
 	void onUpdateFailed();
-	#endif
+#endif
 
 	void onShowSessions();
 
@@ -181,11 +186,16 @@ public slots:
 
 	void onUpdateLocalStorage();
 
+private slots:
+	void onClearStickers();
+	void onSwitchModerateMode();
+
 	void onAskQuestion();
 	void onAskQuestionSure();
 	void onTelegramFAQ();
 
 private:
+	void notifyPeerUpdated(const Notify::PeerUpdate &update);
 
 	void saveError(const QString &str = QString());
 
@@ -204,7 +214,7 @@ private:
 	// profile
 	Text _nameText;
 	QString _nameCache;
-	TextLinkPtr _photoLink;
+	ClickHandlerPtr _photoLink;
 	FlatButton _uploadPhoto;
 	LinkButton _cancelPhoto;
 	bool _nameOver, _photoOver;
@@ -279,6 +289,15 @@ private:
 	FlatCheckbox _tileBackground, _adaptiveForWide;
 	bool _needBackgroundUpdate;
 
+	// Radial animation interface.
+	RadialAnimation _radial;
+	float64 radialProgress() const;
+	bool radialLoading() const;
+	QRect radialRect() const;
+	void radialStart();
+	uint64 radialTimeShift() const;
+	void step_radial(uint64 ms, bool timer);
+
 	// advanced
 	LinkButton _passcodeEdit, _passcodeTurnOff, _autoLock;
 	QString _autoLockText;
@@ -292,8 +311,7 @@ private:
 	LinkButton _connectionType;
 	QString _connectionTypeText;
 	int32 _connectionTypeWidth;
-	LinkButton _showSessions, _askQuestion, _telegramFAQ;
-	FlatButton _logOut;
+	LinkButton _showSessions, _askQuestion, _telegramFAQ, _logOut;
 
 	mtpRequestId _supportGetRequest;
 
@@ -312,7 +330,7 @@ class SettingsWidget : public TWidget {
 
 public:
 
-	SettingsWidget(Window *parent);
+	SettingsWidget(MainWindow *parent);
 
 	void paintEvent(QPaintEvent *e);
 	void resizeEvent(QResizeEvent *e);
@@ -331,7 +349,6 @@ public:
 	void updateDisplayNotify();
 
 	void rpcClear();
-	void usernameChanged();
 
 	void setInnerFocus();
 	void needBackgroundUpdate(bool tile);

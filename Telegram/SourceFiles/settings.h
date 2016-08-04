@@ -55,19 +55,7 @@ inline bool rtl() {
 
 DeclareReadSetting(QString, Arguments);
 
-struct mtpDcOption {
-	mtpDcOption(int id, int flags, const string &ip, int port) : id(id), flags(flags), ip(ip), port(port) {
-	}
-
-	int id;
-	int flags;
-	string ip;
-	int port;
-};
-typedef QMap<int, mtpDcOption> mtpDcOptions;
-DeclareSetting(mtpDcOptions, DcOptions);
-
-DeclareSetting(bool, DevVersion);
+DeclareSetting(bool, AlphaVersion);
 DeclareSetting(uint64, BetaVersion);
 DeclareSetting(uint64, RealBetaVersion);
 DeclareSetting(QByteArray, BetaPrivateKey);
@@ -111,7 +99,6 @@ DeclareSetting(bool, TileBackground);
 
 DeclareSetting(bool, SoundNotify);
 DeclareSetting(bool, IncludeMuted);
-DeclareSetting(bool, NeedConfigResave);
 DeclareSetting(bool, DesktopNotify);
 DeclareSetting(DBINotifyView, NotifyView);
 DeclareSetting(bool, AutoUpdate);
@@ -214,24 +201,6 @@ DeclareRefSetting(RecentStickerPack, RecentStickers);
 RecentStickerPack &cGetRecentStickers();
 
 typedef QMap<EmojiPtr, StickerPack> StickersByEmojiMap;
-
-static const uint64 DefaultStickerSetId = 0; // for backward compatibility
-static const uint64 CustomStickerSetId = 0xFFFFFFFFFFFFFFFFULL, RecentStickerSetId = 0xFFFFFFFFFFFFFFFEULL;
-static const uint64 NoneStickerSetId = 0xFFFFFFFFFFFFFFFDULL; // for emoji/stickers panel
-struct StickerSet {
-	StickerSet(uint64 id, uint64 access, const QString &title, const QString &shortName, int32 count, int32 hash, int32 flags) : id(id), access(access), title(title), shortName(shortName), count(count), hash(hash), flags(flags) {
-	}
-	uint64 id, access;
-	QString title, shortName;
-	int32 count, hash, flags;
-	StickerPack stickers;
-	StickersByEmojiMap emoji;
-};
-typedef QMap<uint64, StickerSet> StickerSets;
-DeclareRefSetting(StickerSets, StickerSets);
-typedef QList<uint64> StickerSetsOrder;
-DeclareRefSetting(StickerSetsOrder, StickerSetsOrder);
-DeclareSetting(uint64, LastStickersUpdate);
 
 typedef QVector<DocumentData*> SavedGifs;
 DeclareRefSetting(SavedGifs, SavedGifs);

@@ -20,18 +20,14 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-static const int32 AppVersion = 9029;
-static const wchar_t *AppVersionStr = L"0.9.29";
-static const bool DevVersion = true;
-//#define BETA_VERSION (9028002ULL) // just comment this line to build public version
-
-static const wchar_t *AppNameOld = L"Telegram Win (Unofficial)";
-static const wchar_t *AppName = L"Telegram Desktop";
-
-static const wchar_t *AppId = L"{53F49750-6209-4FBF-9CA8-7A333C87D1ED}"; // used in updater.cpp and Setup.iss for Windows
-static const wchar_t *AppFile = L"Telegram";
-
+#include "core/version.h"
 #include "settings.h"
+
+constexpr str_const AppNameOld = "Telegram Win (Unofficial)";
+constexpr str_const AppName = "Telegram Desktop";
+
+constexpr str_const AppId = "{53F49750-6209-4FBF-9CA8-7A333C87D1ED}"; // used in updater.cpp and Setup.iss for Windows
+constexpr str_const AppFile = "Telegram";
 
 enum {
 	MTPShortBufferSize = 65535, // of ints, 256 kb
@@ -101,6 +97,9 @@ enum {
 	MediaOverviewStartPerPage = 5,
 	MediaOverviewPreloadCount = 4,
 
+	// a new message from the same sender is attached to previous within 15 minutes
+	AttachMessageToPreviousSecondsDelta = 900,
+
 	AudioVoiceMsgSimultaneously = 4,
 	AudioSongSimultaneously = 4,
 	AudioCheckPositionTimeout = 100, // 100ms per check audio pos
@@ -136,7 +135,6 @@ enum {
 	EmojiPanRowsPerPage = 6,
 	StickerPanPerRow = 5,
 	StickerPanRowsPerPage = 4,
-	SavedGifsMaxPerRow = 4,
 	StickersUpdateTimeout = 3600000, // update not more than once in an hour
 
 	SearchPeopleLimit = 5,
@@ -154,6 +152,9 @@ enum {
 	WriteMapTimeout = 1000,
 	SaveDraftTimeout = 1000, // save draft after 1 secs of not changing text
 	SaveDraftAnywayTimeout = 5000, // or save anyway each 5 secs
+	SaveCloudDraftIdleTimeout = 14000, // save draft to the cloud after 14 more seconds
+	SaveCloudDraftTimeout = 1000, // save draft to the cloud with 1 sec extra delay
+	SaveDraftBeforeQuitTimeout = 1500, // give the app 1.5 secs to save drafts to cloud when quitting
 
 	SetOnlineAfterActivity = 30, // user with hidden last seen stays online for such amount of seconds in the interface
 
@@ -171,6 +172,8 @@ enum {
 
 	ChoosePeerByDragTimeout = 1000, // 1 second mouse not moved to choose dialog when dragging a file
 	ReloadChannelMembersTimeout = 1000, // 1 second wait before reload members in channel after adding
+
+	PinnedMessageTextLimit = 16,
 };
 
 inline bool isNotificationsUser(uint64 id) {
@@ -195,7 +198,7 @@ inline const char *cGUIDStr() {
 	return gGuidStr;
 }
 
-inline const char **cPublicRSAKeys(uint32 &cnt) {
+inline const char **cPublicRSAKeys(int &keysCount) {
 	static const char *(keys[]) = {"\
 -----BEGIN RSA PUBLIC KEY-----\n\
 MIIBCgKCAQEAwVACPi9w23mF3tBkdZz+zwrzKOaaQdr01vAbU4E1pvkfj4sqDsm6\n\
@@ -205,7 +208,7 @@ Efzk2DWgkBluml8OREmvfraX3bkHZJTKX4EQSjBbbdJ2ZXIsRrYOXfaA+xayEGB+\n\
 8hdlLmAjbCVfaigxX0CDqWeR1yFL9kwd9P0NsZRPsmoqVwMbMu7mStFai6aIhc3n\n\
 Slv8kg9qv1m6XHVQY3PnEw+QQtqSIXklHwIDAQAB\n\
 -----END RSA PUBLIC KEY-----"};
-	cnt = sizeof(keys) / sizeof(const char*);
+	keysCount = arraysize(keys);
 	return keys;
 }
 
@@ -267,7 +270,7 @@ BZpkIfKaRcl6XzNJiN28cVwO1Ui5JSa814UAiDHzWUqCaXUiUEQ6NmNTneiGx2sQ\n\
 -----END RSA PUBLIC KEY-----\
 ";
 
-static const char *UpdatesPublicDevKey = "\
+static const char *UpdatesPublicAlphaKey = "\
 -----BEGIN RSA PUBLIC KEY-----\n\
 MIGJAoGBALWu9GGs0HED7KG7BM73CFZ6o0xufKBRQsdnq3lwA8nFQEvmdu+g/I1j\n\
 0LQ+0IQO7GW4jAgzF/4+soPDb6uHQeNFrlVx1JS9DZGhhjZ5rf65yg11nTCIHZCG\n\
@@ -282,16 +285,14 @@ static const int32 ApiId = 17349;
 static const char *ApiHash = "344583e45741c457fe1862106095a5eb";
 #endif
 
-#ifndef BETA_VERSION
-#define BETA_VERSION (0)
+#ifndef BETA_VERSION_MACRO
+#error "Beta version macro is not defined."
 #endif
 
-#if (defined CUSTOM_API_ID) && (BETA_VERSION > 0)
+#if (defined CUSTOM_API_ID) && (BETA_VERSION_MACRO > 0ULL)
 #include "../../../TelegramPrivate/beta_private.h" // private key for downloading closed betas
 #else
 static const char *BetaPrivateKey = "";
-#undef BETA_VERSION
-#define BETA_VERSION 0
 #endif
 
 inline const char *cApiDeviceModel() {
@@ -315,7 +316,6 @@ inline const char *cApiSystemVersion() {
 inline QString cApiAppVersion() {
 	return QString::number(AppVersion);
 }
-static const char *ApiLang = "en";
 
 extern QString gKeyFile;
 inline const QString &cDataFile() {

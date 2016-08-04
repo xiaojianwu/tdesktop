@@ -18,9 +18,10 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 #include "stdafx.h"
 #include "pspecific_mac_p.h"
 
-#include "window.h"
+#include "mainwindow.h"
 #include "mainwidget.h"
 #include "application.h"
+#include "playerwidget.h"
 
 #include "lang.h"
 
@@ -126,6 +127,8 @@ QString objcString(NSString *str) {
 - (id) init:(PsMacWindowPrivate *)aWnd;
 - (void) activeSpaceDidChange:(NSNotification *)aNotification;
 - (void) darkModeChanged:(NSNotification *)aNotification;
+- (void) screenIsLocked:(NSNotification *)aNotification;
+- (void) screenIsUnlocked:(NSNotification *)aNotification;
 
 @end
 
@@ -194,6 +197,14 @@ public:
 	wnd->darkModeChanged();
 }
 
+- (void) screenIsLocked:(NSNotification *)aNotification {
+	Global::SetScreenIsLocked(true);
+}
+
+- (void) screenIsUnlocked:(NSNotification *)aNotification {
+	Global::SetScreenIsLocked(false);
+}
+
 @end
 
 @implementation NotifyHandler {
@@ -231,6 +242,8 @@ public:
 PsMacWindowPrivate::PsMacWindowPrivate() : data(new PsMacWindowData(this)) {
     [[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:data->observerHelper selector:@selector(activeSpaceDidChange:) name:NSWorkspaceActiveSpaceDidChangeNotification object:nil];
 	[[NSDistributedNotificationCenter defaultCenter] addObserver:data->observerHelper selector:@selector(darkModeChanged:) name:QNSString(strNotificationAboutThemeChange()).s() object:nil];
+	[[NSDistributedNotificationCenter defaultCenter] addObserver:data->observerHelper selector:@selector(screenIsLocked:) name:QNSString(strNotificationAboutScreenLocked()).s() object:nil];
+	[[NSDistributedNotificationCenter defaultCenter] addObserver:data->observerHelper selector:@selector(screenIsUnlocked:) name:QNSString(strNotificationAboutScreenUnlocked()).s() object:nil];
 }
 
 void PsMacWindowPrivate::setWindowBadge(const QString &str) {
@@ -254,7 +267,7 @@ void objc_holdOnTop(WId winId) {
 bool objc_darkMode() {
 	NSDictionary *dict = [[NSUserDefaults standardUserDefaults] persistentDomainForName:NSGlobalDomain];
 	id style = [dict objectForKey:QNSString(strStyleOfInterface()).s()];
-	BOOL darkModeOn = ( style && [style isKindOfClass:[NSString class]] && NSOrderedSame == [style caseInsensitiveCompare:@"dark"] );
+	BOOL darkModeOn = (style && [style isKindOfClass:[NSString class]] && NSOrderedSame == [style caseInsensitiveCompare:@"dark"]);
 	return darkModeOn ? true : false;
 }
 
@@ -793,7 +806,7 @@ void objc_openFile(const QString &f, bool openwith) {
 
             NSOpenPanel *openPanel = [NSOpenPanel openPanel];
 
-			NSRect fullRect = { { 0., 0. }, { st::macAccessory.width() * 1., st::macAccessory.height() * 1. } };
+			NSRect fullRect = { { 0., 0. }, { st::macAccessoryWidth, st::macAccessoryHeight } };
 			NSView *accessory = [[NSView alloc] initWithFrame:fullRect];
 
             [accessory setAutoresizesSubviews:YES];
@@ -860,7 +873,7 @@ void objc_openFile(const QString &f, bool openwith) {
             NSImageView *badIcon = [[NSImageView alloc] init];
             NSImage *badImage = [NSImage imageNamed:NSImageNameCaution];
             [badIcon setImage:badImage];
-            [badIcon setFrame:NSMakeRect(0, 0, st::macCautionIconSize.width(), st::macCautionIconSize.height())];
+            [badIcon setFrame:NSMakeRect(0, 0, st::macCautionIconSize, st::macCautionIconSize)];
 
             NSRect badFrame = [badLabel frame], badIconFrame = [badIcon frame];
             badFrame.origin.x = (fullRect.size.width - badFrame.size.width + badIconFrame.size.width) / 2.;
@@ -1040,7 +1053,7 @@ double objc_appkitVersion() {
 QString objc_appDataPath() {
 	NSURL *url = [[NSFileManager defaultManager] URLForDirectory:NSApplicationSupportDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:nil];
 	if (url) {
-		return QString::fromUtf8([[url path] fileSystemRepresentation]) + '/' + QString::fromWCharArray(AppName) + '/';
+		return QString::fromUtf8([[url path] fileSystemRepresentation]) + '/' + str_const_toString(AppName) + '/';
 	}
 	return QString();
 }
@@ -1048,7 +1061,7 @@ QString objc_appDataPath() {
 QString objc_downloadPath() {
 	NSURL *url = [[NSFileManager defaultManager] URLForDirectory:NSDownloadsDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:nil];
 	if (url) {
-		return QString::fromUtf8([[url path] fileSystemRepresentation]) + '/' + QString::fromWCharArray(AppName) + '/';
+		return QString::fromUtf8([[url path] fileSystemRepresentation]) + '/' + str_const_toString(AppName) + '/';
 	}
 	return QString();
 }

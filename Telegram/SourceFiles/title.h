@@ -23,7 +23,7 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 #include <QtWidgets/QWidget>
 #include "sysbuttons.h"
 
-class Window;
+class MainWindow;
 
 class TitleHider : public QWidget {
 public:
@@ -44,7 +44,7 @@ class TitleWidget : public TWidget {
 
 public:
 
-	TitleWidget(Window *parent);
+	TitleWidget(MainWindow *parent);
 	void paintEvent(QPaintEvent *e);
 	void resizeEvent(QResizeEvent *e);
 
@@ -67,7 +67,7 @@ public:
 
 public slots:
 
-	void stateChanged(Qt::WindowState state = Qt::WindowNoState);
+	void onWindowStateChanged(Qt::WindowState state = Qt::WindowNoState);
 	void showUpdateBtn();
 	void onContacts();
 	void onAbout();
@@ -78,7 +78,7 @@ signals:
 
 private:
 
-	Window *wnd;
+	MainWindow *wnd;
 
 	style::color statusColor;
 

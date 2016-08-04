@@ -19,11 +19,10 @@ Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #include "stdafx.h"
-#include "style.h"
+#include "boxes/photosendbox.h"
+
 #include "lang.h"
-
 #include "localstorage.h"
-
 #include "mainwidget.h"
 #include "photosendbox.h"
 
@@ -32,7 +31,7 @@ PhotoSendBox::PhotoSendBox(const FileLoadResultPtr &file) : AbstractBox(st::boxW
 , _animated(false)
 , _caption(this, st::confirmCaptionArea, lang(lng_photo_caption))
 , _compressedFromSettings(_file->type == PrepareAuto)
-, _compressed(this, lang(lng_send_image_compressed), _compressedFromSettings ? cCompressPastedImage() : true)
+, _compressed(this, lang(lng_send_image_compressed), _compressedFromSettings ? cCompressPastedImage() : true, st::defaultBoxCheckbox)
 , _send(this, lang(lng_send_button), st::defaultBoxButton)
 , _cancel(this, lang(lng_cancel), st::cancelBoxButton)
 , _thumbx(0)
@@ -51,8 +50,8 @@ PhotoSendBox::PhotoSendBox(const FileLoadResultPtr &file) : AbstractBox(st::boxW
 	if (_file->photo.type() != mtpc_photoEmpty) {
 		_file->type = PreparePhoto;
 	} else if (_file->document.type() == mtpc_document) {
-		const MTPDdocument &document(_file->document.c_document());
-		const QVector<MTPDocumentAttribute> &attributes(document.vattributes.c_vector().v);
+		const auto &document(_file->document.c_document());
+		const auto &attributes(document.vattributes.c_vector().v);
 		for (int32 i = 0, l = attributes.size(); i < l; ++i) {
 			if (attributes.at(i).type() == mtpc_documentAttributeAnimated) {
 				_animated = true;
@@ -69,8 +68,8 @@ PhotoSendBox::PhotoSendBox(const FileLoadResultPtr &file) : AbstractBox(st::boxW
 		if (_animated) {
 			int32 limitW = width() - st::boxPhotoPadding.left() - st::boxPhotoPadding.right();
 			int32 limitH = st::confirmMaxHeight;
-			maxW = dimensions.width();
-			maxH = dimensions.height();
+			maxW = qMax(dimensions.width(), 1);
+			maxH = qMax(dimensions.height(), 1);
 			if (maxW * limitH > maxH * limitW) {
 				if (maxW < limitW) {
 					maxH = maxH * limitW / maxW;
@@ -82,7 +81,7 @@ PhotoSendBox::PhotoSendBox(const FileLoadResultPtr &file) : AbstractBox(st::boxW
 					maxH = limitH;
 				}
 			}
-			_thumb = imagePix(_file->thumb.toImage(), maxW * cIntRetinaFactor(), maxH * cIntRetinaFactor(), true, true, false, maxW, maxH);
+			_thumb = imagePix(_file->thumb.toImage(), maxW * cIntRetinaFactor(), maxH * cIntRetinaFactor(), ImagePixSmooth | ImagePixBlurred, maxW, maxH);
 		} else {
 			for (PreparedPhotoThumbs::const_iterator i = _file->photoThumbs.cbegin(), e = _file->photoThumbs.cend(); i != e; ++i) {
 				if (i->width() >= maxW && i->height() >= maxH) {
@@ -124,7 +123,7 @@ PhotoSendBox::PhotoSendBox(const FileLoadResultPtr &file) : AbstractBox(st::boxW
 			} else {
 				_thumbw = st::msgFileThumbSize;
 			}
-			_thumb = imagePix(_thumb.toImage(), _thumbw * cIntRetinaFactor(), 0, true, false, true, st::msgFileThumbSize, st::msgFileThumbSize);
+			_thumb = imagePix(_thumb.toImage(), _thumbw * cIntRetinaFactor(), 0, ImagePixSmooth | ImagePixRoundedSmall, st::msgFileThumbSize, st::msgFileThumbSize);
 		}
 
 		_name.setText(st::semiboldFont, _file->filename, _textNameOptions);
@@ -274,7 +273,7 @@ void PhotoSendBox::paintEvent(QPaintEvent *e) {
 
 			p.drawSpriteCenter(inner, _isImage ? st::msgFileOutImage : st::msgFileOutFile);
 		} else {
-			p.drawPixmapLeft(x + st::msgFilePadding.left(), y + st::msgFilePadding.top(), width(), userDefPhoto(1)->pixRounded(st::msgFileSize));
+			p.drawPixmapLeft(x + st::msgFilePadding.left(), y + st::msgFilePadding.top(), width(), userDefPhoto(1)->pixCircled(st::msgFileSize));
 		}
 		p.setFont(st::semiboldFont);
 		p.setPen(st::black);
@@ -415,7 +414,7 @@ EditCaptionBox::EditCaptionBox(HistoryItem *msg) : AbstractBox(st::boxWideWidth)
 			image = doc->thumb;
 		} break;
 		}
-		caption = media->getCaption();
+		caption = media->getCaption().text;
 	}
 	if ((!_animated && (dimensions.isEmpty() || doc)) || image->isNull()) {
 		_animated = false;
@@ -428,7 +427,7 @@ EditCaptionBox::EditCaptionBox(HistoryItem *msg) : AbstractBox(st::boxWideWidth)
 			} else {
 				_thumbw = st::msgFileThumbSize;
 			}
-			_thumb = imagePix(image->pix().toImage(), _thumbw * cIntRetinaFactor(), 0, true, false, true, st::msgFileThumbSize, st::msgFileThumbSize);
+			_thumb = imagePix(image->pix().toImage(), _thumbw * cIntRetinaFactor(), 0, ImagePixSmooth | ImagePixRoundedSmall, st::msgFileThumbSize, st::msgFileThumbSize);
 		}
 
 		if (doc) {
@@ -446,8 +445,8 @@ EditCaptionBox::EditCaptionBox(HistoryItem *msg) : AbstractBox(st::boxWideWidth)
 		if (_animated) {
 			int32 limitW = width() - st::boxPhotoPadding.left() - st::boxPhotoPadding.right();
 			int32 limitH = st::confirmMaxHeight;
-			maxW = dimensions.width();
-			maxH = dimensions.height();
+			maxW = qMax(dimensions.width(), 1);
+			maxH = qMax(dimensions.height(), 1);
 			if (maxW * limitH > maxH * limitW) {
 				if (maxW < limitW) {
 					maxH = maxH * limitW / maxW;
@@ -459,11 +458,11 @@ EditCaptionBox::EditCaptionBox(HistoryItem *msg) : AbstractBox(st::boxWideWidth)
 					maxH = limitH;
 				}
 			}
-			_thumb = image->pixNoCache(maxW * cIntRetinaFactor(), maxH * cIntRetinaFactor(), true, true, false, maxW, maxH);
+			_thumb = image->pixNoCache(maxW * cIntRetinaFactor(), maxH * cIntRetinaFactor(), ImagePixSmooth | ImagePixBlurred, maxW, maxH);
 		} else {
 			maxW = dimensions.width();
 			maxH = dimensions.height();
-			_thumb = image->pixNoCache(maxW * cIntRetinaFactor(), maxH * cIntRetinaFactor(), true, false, false, maxW, maxH);
+			_thumb = image->pixNoCache(maxW * cIntRetinaFactor(), maxH * cIntRetinaFactor(), ImagePixSmooth, maxW, maxH);
 		}
 		int32 tw = _thumb.width(), th = _thumb.height();
 		if (!tw || !th) {
@@ -493,7 +492,8 @@ EditCaptionBox::EditCaptionBox(HistoryItem *msg) : AbstractBox(st::boxWideWidth)
 		_field->setMaxLength(MaxPhotoCaption);
 		_field->setCtrlEnterSubmit(CtrlEnterSubmitBoth);
 	} else {
-		QString text = textApplyEntities(msg->originalText(), msg->originalEntities());
+		auto original = msg->originalText();
+		QString text = textApplyEntities(original.text, original.entities);
 		_field = new InputArea(this, st::editTextArea, lang(lng_photo_caption), text);
 //		_field->setMaxLength(MaxMessageSize); // entities can make text in input field larger but still valid
 		_field->setCtrlEnterSubmit(cCtrlEnter() ? CtrlEnterSubmitCtrlEnter : CtrlEnterSubmitEnter);
@@ -648,15 +648,16 @@ void EditCaptionBox::onSave(bool ctrlShiftEnter) {
 		return;
 	}
 
-	int32 flags = 0;
+	MTPmessages_EditMessage::Flags flags = MTPmessages_EditMessage::Flag::f_message;
 	if (_previewCancelled) {
-		flags |= MTPchannels_EditMessage::flag_no_webpage;
+		flags |= MTPmessages_EditMessage::Flag::f_no_webpage;
 	}
 	MTPVector<MTPMessageEntity> sentEntities;
 	if (!sentEntities.c_vector().v.isEmpty()) {
-		flags |= MTPmessages_SendMessage::flag_entities;
+		flags |= MTPmessages_EditMessage::Flag::f_entities;
 	}
-	_saveRequestId = MTP::send(MTPchannels_EditMessage(MTP_int(flags), item->history()->peer->asChannel()->inputChannel, MTP_int(item->id), MTP_string(_field->getLastText()), sentEntities), rpcDone(&EditCaptionBox::saveDone), rpcFail(&EditCaptionBox::saveFail));
+	auto text = prepareText(_field->getLastText(), true);
+	_saveRequestId = MTP::send(MTPmessages_EditMessage(MTP_flags(flags), item->history()->peer->input, MTP_int(item->id), MTP_string(text), MTPnullMarkup, sentEntities), rpcDone(&EditCaptionBox::saveDone), rpcFail(&EditCaptionBox::saveFail));
 }
 
 void EditCaptionBox::saveDone(const MTPUpdates &updates) {
@@ -668,7 +669,7 @@ void EditCaptionBox::saveDone(const MTPUpdates &updates) {
 }
 
 bool EditCaptionBox::saveFail(const RPCError &error) {
-	if (mtpIsFlood(error)) return false;
+	if (MTP::isDefaultHandledError(error)) return false;
 
 	_saveRequestId = 0;
 	QString err = error.type();

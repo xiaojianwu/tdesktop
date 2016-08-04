@@ -57,7 +57,7 @@ private:
 
 	void initBox();
 
-	UserData *_user;
+	UserData *_user = nullptr;
 	QString _boxTitle;
 
 	BoxButton _save, _cancel, _retry;
@@ -66,9 +66,9 @@ private:
 
 	bool _invertOrder;
 
-	uint64 _contactId;
+	uint64 _contactId = 0;
 
-	mtpRequestId _addRequest;
+	mtpRequestId _addRequest = 0;
 	QString _sentName;
 };
 
@@ -211,13 +211,14 @@ private:
 	bool onCheckFail(const RPCError &error);
 	bool onFirstCheckFail(const RPCError &error);
 
+	void updateMaxHeight();
+
 	ChannelData *_channel;
 	bool _existing;
 
 	Radiobutton _public, _private;
-	Checkbox _comments;
 	int32 _aboutPublicWidth, _aboutPublicHeight;
-	Text _aboutPublic, _aboutPrivate, _aboutComments;
+	Text _aboutPublic, _aboutPrivate;
 	UsernameInput _link;
 	QRect _invitationLink;
 	bool _linkOver;

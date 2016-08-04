@@ -19,12 +19,11 @@ Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #include "stdafx.h"
-#include "lang.h"
-#include "style.h"
-
 #include "title.h"
+
+#include "lang.h"
 #include "mainwidget.h"
-#include "window.h"
+#include "mainwindow.h"
 #include "application.h"
 #include "boxes/contactsbox.h"
 #include "boxes/aboutbox.h"
@@ -49,7 +48,7 @@ void TitleHider::setLevel(float64 level) {
 	update();
 }
 
-TitleWidget::TitleWidget(Window *window) : TWidget(window)
+TitleWidget::TitleWidget(MainWindow *window) : TWidget(window)
 , wnd(window)
 , hideLevel(0)
 , hider(0)
@@ -81,14 +80,14 @@ TitleWidget::TitleWidget(Window *window) : TWidget(window)
 	) {
 		showUpdateBtn();
 	}
-	stateChanged();
+	onWindowStateChanged();
 
 	connect(&_back, SIGNAL(clicked()), window, SLOT(hideSettings()));
 	connect(&_cancel, SIGNAL(clicked()), this, SIGNAL(hiderClicked()));
 	connect(&_settings, SIGNAL(clicked()), window, SLOT(showSettings()));
 	connect(&_contacts, SIGNAL(clicked()), this, SLOT(onContacts()));
 	connect(&_about, SIGNAL(clicked()), this, SLOT(onAbout()));
-	connect(wnd->windowHandle(), SIGNAL(windowStateChanged(Qt::WindowState)), this, SLOT(stateChanged(Qt::WindowState)));
+	connect(wnd->windowHandle(), SIGNAL(windowStateChanged(Qt::WindowState)), this, SLOT(onWindowStateChanged(Qt::WindowState)));
 
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
 	Sandbox::connect(SIGNAL(updateReady()), this, SLOT(showUpdateBtn()));
@@ -103,14 +102,16 @@ TitleWidget::TitleWidget(Window *window) : TWidget(window)
 }
 
 void TitleWidget::paintEvent(QPaintEvent *e) {
-	QPainter p(this);
+	Painter p(this);
 	p.fillRect(QRect(0, 0, width(), st::titleHeight), st::titleBG->b);
 	if (!_cancel.isHidden()) {
 		p.setPen(st::titleTextButton.color->p);
 		p.setFont(st::titleTextButton.font->f);
-		p.drawText(st::titleMenuOffset - st::titleTextButton.width / 2, st::titleTextButton.textTop + st::titleTextButton.font->ascent, lang(lng_forward_choose));
+		bool inlineSwitchChoose = (App::main() && App::main()->selectingPeerForInlineSwitch());
+		auto chooseText = lang(inlineSwitchChoose ? lng_inline_switch_choose : lng_forward_choose);
+		p.drawText(st::titleMenuOffset - st::titleTextButton.width / 2, st::titleTextButton.textTop + st::titleTextButton.font->ascent, chooseText);
 	}
-	p.drawPixmap(st::titleIconPos, App::sprite(), st::titleIconImg);
+	p.drawSprite(st::titleIconPos, st::titleIconImg);
 	if (Adaptive::OneColumn() && !_counter.isNull() && App::main()) {
 		p.drawPixmap(st::titleIconPos.x() + st::titleIconImg.pxWidth() - (_counter.width() / cIntRetinaFactor()), st::titleIconPos.y() + st::titleIconImg.pxHeight() - (_counter.height() / cIntRetinaFactor()), _counter);
 	}
@@ -307,7 +308,7 @@ void TitleWidget::mouseDoubleClickEvent(QMouseEvent *e) {
 	}
 }
 
-void TitleWidget::stateChanged(Qt::WindowState state) {
+void TitleWidget::onWindowStateChanged(Qt::WindowState state) {
 	if (state == Qt::WindowMinimized) return;
 	maximizedChanged(state == Qt::WindowMaximized);
 }

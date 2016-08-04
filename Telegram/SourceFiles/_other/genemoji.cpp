@@ -32,8 +32,6 @@ Q_IMPORT_PLUGIN(QCocoaIntegrationPlugin)
 Q_IMPORT_PLUGIN(QDDSPlugin)
 Q_IMPORT_PLUGIN(QICNSPlugin)
 Q_IMPORT_PLUGIN(QICOPlugin)
-Q_IMPORT_PLUGIN(QJp2Plugin)
-Q_IMPORT_PLUGIN(QMngPlugin)
 Q_IMPORT_PLUGIN(QTgaPlugin)
 Q_IMPORT_PLUGIN(QTiffPlugin)
 Q_IMPORT_PLUGIN(QWbmpPlugin)
@@ -1944,7 +1942,7 @@ to link the code of portions of this program with the OpenSSL library.\n\
 Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE\n\
 Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org\n\
 */\n";
-			tcpp << "#include \"stdafx.h\"\n#include \"gui/emoji_config.h\"\n\n";
+			tcpp << "#include \"stdafx.h\"\n#include \"ui/emoji_config.h\"\n\n";
 
 			tcpp << "namespace {\n"; // namespace with data
 			tcpp << "\tEmojiData *emojis = 0;\n";

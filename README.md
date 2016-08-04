@@ -2,19 +2,21 @@
 
 This is the complete source code and the build instructions for the alpha version of the official desktop client for the [Telegram][telegram] messenger, based on the [Telegram API][telegram_api] and the [MTProto][telegram_proto] secure protocol.
 
+[![Build Status](https://travis-ci.org/telegramdesktop/tdesktop.svg?branch=master)](https://travis-ci.org/telegramdesktop/tdesktop)
+
 The source code is published under GPLv3 with OpenSSL exception, the license is available [here][license].
 
 ## Supported systems
 
 * Windows XP - Windows 10 (**not** RT)
-* Mac OS X 10.8 - Mac OS X 10.10
+* Mac OS X 10.8 - Mac OS X 10.11
 * Mac OS X 10.6 - Mac OS X 10.7 (separate build)
-* Ubuntu 12.04 - Ubuntu 14.04
+* Ubuntu 12.04 - Ubuntu 16.04
 * Fedora 22
 
 ## Third-party libraries
 
-* Qt 5.3.2 and 5.5.1, slightly patched ([LGPL](http://doc.qt.io/qt-5/lgpl.html))
+* Qt 5.3.2 and 5.6.0, slightly patched ([LGPL](http://doc.qt.io/qt-5/lgpl.html))
 * OpenSSL 1.0.1g ([OpenSSL License](https://www.openssl.org/source/license.html))
 * zlib 1.2.8 ([zlib License](http://www.zlib.net/zlib_license.html))
 * libexif 0.6.20 ([LGPL](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.en.html))
@@ -30,8 +32,8 @@ The source code is published under GPLv3 with OpenSSL exception, the license is 
 ## Build instructions
 
 * [Visual Studio 2015][msvc]
-* [XCode 7][xcode]
-* [XCode 7 for OS X 10.6 and 10.7][xcode_old]
+* [Xcode 7][xcode]
+* [Xcode 7 for OS X 10.6 and 10.7][xcode_old]
 * [Qt Creator 3.5.1 Ubuntu][qtcreator]
 * [Using qmake on GNU/Linux][qmake]
 
@@ -57,30 +59,16 @@ The source code is published under GPLv3 with OpenSSL exception, the license is 
   * SourceFiles/art/emoji_150x.png
   * SourceFiles/art/emoji_200x.png
   * SourceFiles/art/emoji_250x.png
-  * SourceFiles/gui/emoji_config.cpp
+  * SourceFiles/ui/emoji_config.cpp
 
-* ### MetaStyle
+* ### codegen_style
+* ### codegen_numbers
 
-  From two files and two sprites
-  * Resources/style_classes.txt
-  * Resources/style.txt
-  * SourceFiles/art/sprite.png
-  * SourceFiles/art/sprite_200x.png
-
-  Creates two other sprites, four sprite grids and style constants code
-  * SourceFiles/art/sprite_125x.png
-  * SourceFiles/art/sprite_150x.png
-  * SourceFiles/art/grid.png
-  * SourceFiles/art/grid_125x.png
-  * SourceFiles/art/grid_150x.png
-  * SourceFiles/art/grid_200x.png
-  * GeneratedFiles/style_classes.h
-  * GeneratedFiles/style_auto.h
-  * GeneratedFiles/style_auto.cpp
+  Helper code generating console utilities.
 
 * ### MetaLang
 
-  Creates from languagepack file `Resources/lang.txt` language constants code and language file parse code:
+  Creates from languagepack file `Resources/lang.strings` language constants code and language file parse code:
   * GeneratedFiles/lang.h
   * GeneratedFiles/lang.cpp
 

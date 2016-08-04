@@ -23,10 +23,10 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 
 #include "stickersetbox.h"
 #include "mainwidget.h"
-#include "window.h"
+#include "mainwindow.h"
 #include "settingswidget.h"
 #include "boxes/confirmbox.h"
-
+#include "apiwrap.h"
 #include "localstorage.h"
 
 StickerSetInner::StickerSetInner(const MTPInputStickerSet &set) : TWidget()
@@ -56,8 +56,8 @@ void StickerSetInner::gotSet(const MTPmessages_StickerSet &set) {
 	_pack.clear();
 	_emoji.clear();
 	if (set.type() == mtpc_messages_stickerSet) {
-		const MTPDmessages_stickerSet &d(set.c_messages_stickerSet());
-		const QVector<MTPDocument> &v(d.vdocuments.c_vector().v);
+		const auto &d(set.c_messages_stickerSet());
+		const auto &v(d.vdocuments.c_vector().v);
 		_pack.reserve(v.size());
 		for (int32 i = 0, l = v.size(); i < l; ++i) {
 			DocumentData *doc = App::feedDocument(v.at(i));
@@ -65,12 +65,12 @@ void StickerSetInner::gotSet(const MTPmessages_StickerSet &set) {
 
 			_pack.push_back(doc);
 		}
-		const QVector<MTPStickerPack> &packs(d.vpacks.c_vector().v);
+		const auto &packs(d.vpacks.c_vector().v);
 		for (int32 i = 0, l = packs.size(); i < l; ++i) {
 			if (packs.at(i).type() != mtpc_stickerPack) continue;
-			const MTPDstickerPack &pack(packs.at(i).c_stickerPack());
+			const auto &pack(packs.at(i).c_stickerPack());
 			if (EmojiPtr e = emojiGetNoColor(emojiFromText(qs(pack.vemoticon)))) {
-				const QVector<MTPlong> &stickers(pack.vdocuments.c_vector().v);
+				const auto &stickers(pack.vdocuments.c_vector().v);
 				StickerPack p;
 				p.reserve(stickers.size());
 				for (int32 j = 0, c = stickers.size(); j < c; ++j) {
@@ -83,7 +83,7 @@ void StickerSetInner::gotSet(const MTPmessages_StickerSet &set) {
 			}
 		}
 		if (d.vset.type() == mtpc_stickerSet) {
-			const MTPDstickerSet &s(d.vset.c_stickerSet());
+			const auto &s(d.vset.c_stickerSet());
 			_setTitle = stickerSetTitle(s);
 			_title = st::boxTitleFont->elided(_setTitle, width() - st::boxTitlePosition.x() - st::boxTitleHeight);
 			_setShortName = qs(s.vshort_name);
@@ -107,7 +107,7 @@ void StickerSetInner::gotSet(const MTPmessages_StickerSet &set) {
 }
 
 bool StickerSetInner::failedSet(const RPCError &error) {
-	if (mtpIsFlood(error)) return false;
+	if (MTP::isDefaultHandledError(error)) return false;
 
 	_loaded = true;
 
@@ -117,17 +117,17 @@ bool StickerSetInner::failedSet(const RPCError &error) {
 }
 
 void StickerSetInner::installDone(const MTPBool &result) {
-	StickerSets &sets(cRefStickerSets());
+	Stickers::Sets &sets(Global::RefStickerSets());
 
-	_setFlags &= ~MTPDstickerSet::flag_disabled;
-	StickerSets::iterator it = sets.find(_setId);
+	_setFlags &= ~MTPDstickerSet::Flag::f_disabled;
+	auto it = sets.find(_setId);
 	if (it == sets.cend()) {
-		it = sets.insert(_setId, StickerSet(_setId, _setAccess, _setTitle, _setShortName, _setCount, _setHash, _setFlags));
+		it = sets.insert(_setId, Stickers::Set(_setId, _setAccess, _setTitle, _setShortName, _setCount, _setHash, _setFlags));
 	}
 	it.value().stickers = _pack;
 	it.value().emoji = _emoji;
 
-	StickerSetsOrder &order(cRefStickerSetsOrder());
+	Stickers::Order &order(Global::RefStickerSetsOrder());
 	int32 insertAtIndex = 0, currentIndex = order.indexOf(_setId);
 	if (currentIndex != insertAtIndex) {
 		if (currentIndex > 0) {
@@ -136,7 +136,7 @@ void StickerSetInner::installDone(const MTPBool &result) {
 		order.insert(insertAtIndex, _setId);
 	}
 
-	StickerSets::iterator custom = sets.find(CustomStickerSetId);
+	auto custom = sets.find(Stickers::CustomSetId);
 	if (custom != sets.cend()) {
 		for (int32 i = 0, l = _pack.size(); i < l; ++i) {
 			int32 removeIndex = custom->stickers.indexOf(_pack.at(i));
@@ -152,9 +152,13 @@ void StickerSetInner::installDone(const MTPBool &result) {
 }
 
 bool StickerSetInner::installFailed(const RPCError &error) {
-	if (mtpIsFlood(error)) return false;
+	if (MTP::isDefaultHandledError(error)) return false;
 
-	Ui::showLayer(new InformBox(lang(lng_stickers_not_found)));
+	if (error.type() == qstr("STICKERSETS_TOO_MUCH")) {
+		Ui::showLayer(new InformBox(lang(lng_stickers_too_many_packs)));
+	} else {
+		Ui::showLayer(new InformBox(lang(lng_stickers_not_found)));
+	}
 
 	return true;
 }
@@ -171,7 +175,7 @@ void StickerSetInner::mouseMoveEvent(QMouseEvent *e) {
 		int32 index = stickerFromGlobalPos(e->globalPos());
 		if (index >= 0 && index < _pack.size() && index != _previewShown) {
 			_previewShown = index;
-			Ui::showStickerPreview(_pack.at(_previewShown));
+			Ui::showMediaPreview(_pack.at(_previewShown));
 		}
 	}
 }
@@ -184,7 +188,7 @@ void StickerSetInner::onPreview() {
 	int32 index = stickerFromGlobalPos(QCursor::pos());
 	if (index >= 0 && index < _pack.size()) {
 		_previewShown = index;
-		Ui::showStickerPreview(_pack.at(_previewShown));
+		Ui::showMediaPreview(_pack.at(_previewShown));
 	}
 }
 
@@ -224,16 +228,12 @@ void StickerSetInner::paintEvent(QPaintEvent *e) {
 				if (doc->status == FileReady) {
 					doc->automaticLoad(0);
 				}
-				if (doc->sticker()->img->isNull() && doc->loaded() && doc->loaded(true)) {
-					if (doc->data().isEmpty()) {
-						doc->sticker()->img = ImagePtr(doc->already());
-					} else {
-						doc->sticker()->img = ImagePtr(doc->data());
-					}
+				if (doc->sticker()->img->isNull() && doc->loaded(DocumentData::FilePathResolveChecked)) {
+					doc->sticker()->img = doc->data().isEmpty() ? ImagePtr(doc->filepath()) : ImagePtr(doc->data());
 				}
 			}
 
-			float64 coef = qMin((st::stickersSize.width() - st::msgRadius * 2) / float64(doc->dimensions.width()), (st::stickersSize.height() - st::msgRadius * 2) / float64(doc->dimensions.height()));
+			float64 coef = qMin((st::stickersSize.width() - st::buttonRadius * 2) / float64(doc->dimensions.width()), (st::stickersSize.height() - st::buttonRadius * 2) / float64(doc->dimensions.height()));
 			if (coef > 1) coef = 1;
 			int32 w = qRound(coef * doc->dimensions.width()), h = qRound(coef * doc->dimensions.height());
 			if (w < 1) w = 1;
@@ -260,8 +260,8 @@ bool StickerSetInner::loaded() const {
 
 int32 StickerSetInner::notInstalled() const {
 	if (!_loaded) return 0;
-	StickerSets::const_iterator it = cStickerSets().constFind(_setId);
-	if (it == cStickerSets().cend() || (it->flags & MTPDstickerSet::flag_disabled)) return _pack.size();
+	auto it = Global::StickerSets().constFind(_setId);
+	if (it == Global::StickerSets().cend() || (it->flags & MTPDstickerSet::Flag::f_disabled)) return _pack.size();
 	return 0;
 }
 
@@ -620,7 +620,7 @@ void StickersInner::step_shifting(uint64 ms, bool timer) {
 			if (updateMin < 0) updateMin = i;
 			updateMax = i;
 			if (start + st::stickersRowDuration > ms && ms >= start) {
-				_rows.at(i)->yadd.update((ms - start) / st::stickersRowDuration, anim::sineInOut);
+				_rows.at(i)->yadd.update(float64(ms - start) / st::stickersRowDuration, anim::sineInOut);
 				animating = true;
 			} else {
 				_rows.at(i)->yadd.finish();
@@ -632,7 +632,7 @@ void StickersInner::step_shifting(uint64 ms, bool timer) {
 		if (updateMin < 0 || updateMin > _above) updateMin = _above;
 		if (updateMax < _above) updateMin = _above;
 		if (_aboveShadowFadeStart + st::stickersRowDuration > ms && ms > _aboveShadowFadeStart) {
-			_aboveShadowFadeOpacity.update((ms - _aboveShadowFadeStart) / st::stickersRowDuration, anim::sineInOut);
+			_aboveShadowFadeOpacity.update(float64(ms - _aboveShadowFadeStart) / st::stickersRowDuration, anim::sineInOut);
 			animating = true;
 		} else {
 			_aboveShadowFadeOpacity.finish();
@@ -686,14 +686,14 @@ void StickersInner::rebuild() {
 	int32 namew = st::boxWideWidth - namex - st::contactsPadding.right() - st::contactsCheckPosition.x() - qMax(qMax(_returnWidth, _removeWidth), _restoreWidth);
 
 	clear();
-	const StickerSetsOrder &order(cStickerSetsOrder());
+	const Stickers::Order &order(Global::StickerSetsOrder());
 	_animStartTimes.reserve(order.size());
 
-	const StickerSets &sets(cStickerSets());
-	for (int32 i = 0, l = order.size(); i < l; ++i) {
-		StickerSets::const_iterator it = sets.constFind(order.at(i));
+	const Stickers::Sets &sets(Global::StickerSets());
+	for (int i = 0, l = order.size(); i < l; ++i) {
+		auto it = sets.constFind(order.at(i));
 		if (it != sets.cend()) {
-			bool disabled = (it->flags & MTPDstickerSet::flag_disabled);
+			bool disabled = (it->flags & MTPDstickerSet::Flag::f_disabled);
 
 			DocumentData *sticker = it->stickers.isEmpty() ? 0 : it->stickers.at(0);
 			int32 pixw = 0, pixh = 0;
@@ -718,10 +718,10 @@ void StickersInner::rebuild() {
 			if (titleWidth > namew) {
 				title = st::contactsNameFont->elided(title, namew);
 			}
-			bool official = (it->flags & MTPDstickerSet::flag_official);
+			bool official = (it->flags & MTPDstickerSet::Flag::f_official);
 			(disabled ? rowsDisabled : rows).push_back(new StickerSetRow(it->id, sticker, it->stickers.size(), title, official, disabled, pixw, pixh));
 			_animStartTimes.push_back(0);
-			if (it->stickers.isEmpty() || (it->flags & MTPDstickerSet_flag_NOT_LOADED)) {
+			if (it->stickers.isEmpty() || (it->flags & MTPDstickerSet_ClientFlag::f_not_loaded)) {
 				App::api()->scheduleStickerSetRequest(it->id, it->access);
 			}
 		}
@@ -736,8 +736,8 @@ QVector<uint64> StickersInner::getOrder() const {
 	result.reserve(_rows.size());
 	for (int32 i = 0, l = _rows.size(); i < l; ++i) {
 		if (_rows.at(i)->disabled) {
-			StickerSets::const_iterator it = cStickerSets().constFind(_rows.at(i)->id);
-			if (it == cStickerSets().cend() || !(it->flags & MTPDstickerSet::flag_official)) {
+			auto it = Global::StickerSets().constFind(_rows.at(i)->id);
+			if (it == Global::StickerSets().cend() || !(it->flags & MTPDstickerSet::Flag::f_official)) {
 				continue;
 			}
 		}
@@ -786,7 +786,6 @@ StickersBox::StickersBox() : ItemListBox(st::boxScroll)
 
 	connect(&_inner, SIGNAL(checkDraggingScroll(int)), this, SLOT(onCheckDraggingScroll(int)));
 	connect(&_inner, SIGNAL(noDraggingScroll()), this, SLOT(onNoDraggingScroll()));
-	connect(&_scroll, SIGNAL(scrolled()), &_inner, SLOT(onUpdateSelected()));
 	connect(&_scrollTimer, SIGNAL(timeout()), this, SLOT(onScrollTimer()));
 	_scrollTimer.setSingleShot(false);
 
@@ -807,7 +806,7 @@ void StickersBox::disenableDone(const MTPBool & result, mtpRequestId req) {
 }
 
 bool StickersBox::disenableFail(const RPCError &error, mtpRequestId req) {
-	if (mtpIsFlood(error)) return false;
+	if (MTP::isDefaultHandledError(error)) return false;
 	_disenableRequests.remove(req);
 	if (_disenableRequests.isEmpty()) {
 		saveOrder();
@@ -835,9 +834,9 @@ void StickersBox::reorderDone(const MTPBool &result) {
 }
 
 bool StickersBox::reorderFail(const RPCError &result) {
-	if (mtpIsFlood(result)) return false;
+	if (MTP::isDefaultHandledError(result)) return false;
 	_reorderRequest = 0;
-	cSetLastStickersUpdate(0);
+	Global::SetLastStickersUpdate(0);
 	App::main()->updateStickers();
 	onClose();
 	return true;
@@ -861,12 +860,12 @@ void StickersBox::closePressed() {
 			MTP::cancel(i.key());
 		}
 		_disenableRequests.clear();
-		cSetLastStickersUpdate(0);
+		Global::SetLastStickersUpdate(0);
 		App::main()->updateStickers();
 	} else if (_reorderRequest) {
 		MTP::cancel(_reorderRequest);
 		_reorderRequest = 0;
-		cSetLastStickersUpdate(0);
+		Global::SetLastStickersUpdate(0);
 		App::main()->updateStickers();
 	}
 }
@@ -918,11 +917,11 @@ void StickersBox::onSave() {
 
 	bool writeRecent = false;
 	RecentStickerPack &recent(cGetRecentStickers());
-	StickerSets &sets(cRefStickerSets());
+	Stickers::Sets &sets(Global::RefStickerSets());
 
 	QVector<uint64> reorder = _inner.getOrder(), disabled = _inner.getDisabledSets();
 	for (int32 i = 0, l = disabled.size(); i < l; ++i) {
-		StickerSets::iterator it = sets.find(disabled.at(i));
+		auto it = sets.find(disabled.at(i));
 		if (it != sets.cend()) {
 			for (RecentStickerPack::iterator i = recent.begin(); i != recent.cend();) {
 				if (it->stickers.indexOf(i->first) >= 0) {
@@ -932,35 +931,35 @@ void StickersBox::onSave() {
 					++i;
 				}
 			}
-			if (!(it->flags & MTPDstickerSet::flag_disabled)) {
+			if (!(it->flags & MTPDstickerSet::Flag::f_disabled)) {
 				MTPInputStickerSet setId = (it->id && it->access) ? MTP_inputStickerSetID(MTP_long(it->id), MTP_long(it->access)) : MTP_inputStickerSetShortName(MTP_string(it->shortName));
-				if (it->flags & MTPDstickerSet::flag_official) {
+				if (it->flags & MTPDstickerSet::Flag::f_official) {
 					_disenableRequests.insert(MTP::send(MTPmessages_InstallStickerSet(setId, MTP_boolTrue()), rpcDone(&StickersBox::disenableDone), rpcFail(&StickersBox::disenableFail), 0, 5), NullType());
-					it->flags |= MTPDstickerSet::flag_disabled;
+					it->flags |= MTPDstickerSet::Flag::f_disabled;
 				} else {
 					_disenableRequests.insert(MTP::send(MTPmessages_UninstallStickerSet(setId), rpcDone(&StickersBox::disenableDone), rpcFail(&StickersBox::disenableFail), 0, 5), NullType());
-					int32 removeIndex = cStickerSetsOrder().indexOf(it->id);
-					if (removeIndex >= 0) cRefStickerSetsOrder().removeAt(removeIndex);
+					int removeIndex = Global::StickerSetsOrder().indexOf(it->id);
+					if (removeIndex >= 0) Global::RefStickerSetsOrder().removeAt(removeIndex);
 					sets.erase(it);
 				}
 			}
 		}
 	}
-	StickerSetsOrder &order(cRefStickerSetsOrder());
+	Stickers::Order &order(Global::RefStickerSetsOrder());
 	order.clear();
-	for (int32 i = 0, l = reorder.size(); i < l; ++i) {
-		StickerSets::iterator it = sets.find(reorder.at(i));
+	for (int i = 0, l = reorder.size(); i < l; ++i) {
+		auto it = sets.find(reorder.at(i));
 		if (it != sets.cend()) {
-			if ((it->flags & MTPDstickerSet::flag_disabled) && !disabled.contains(it->id)) {
+			if ((it->flags & MTPDstickerSet::Flag::f_disabled) && !disabled.contains(it->id)) {
 				MTPInputStickerSet setId = (it->id && it->access) ? MTP_inputStickerSetID(MTP_long(it->id), MTP_long(it->access)) : MTP_inputStickerSetShortName(MTP_string(it->shortName));
 				_disenableRequests.insert(MTP::send(MTPmessages_InstallStickerSet(setId, MTP_boolFalse()), rpcDone(&StickersBox::disenableDone), rpcFail(&StickersBox::disenableFail), 0, 5), NullType());
-				it->flags &= ~MTPDstickerSet::flag_disabled;
+				it->flags &= ~MTPDstickerSet::Flag::f_disabled;
 			}
 			order.push_back(reorder.at(i));
 		}
 	}
-	for (StickerSets::iterator it = sets.begin(); it != sets.cend();) {
-		if (it->id == CustomStickerSetId || it->id == RecentStickerSetId || order.contains(it->id)) {
+	for (auto it = sets.begin(); it != sets.cend();) {
+		if (it->id == Stickers::CustomSetId || it->id == Stickers::RecentSetId || order.contains(it->id)) {
 			++it;
 		} else {
 			it = sets.erase(it);
@@ -996,12 +995,12 @@ void StickersBox::showAll() {
 
 int32 stickerPacksCount(bool includeDisabledOfficial) {
 	int32 result = 0;
-	const StickerSetsOrder &order(cStickerSetsOrder());
-	const StickerSets &sets(cStickerSets());
-	for (int32 i = 0, l = order.size(); i < l; ++i) {
-		StickerSets::const_iterator it = sets.constFind(order.at(i));
+	const Stickers::Order &order(Global::StickerSetsOrder());
+	const Stickers::Sets &sets(Global::StickerSets());
+	for (int i = 0, l = order.size(); i < l; ++i) {
+		auto it = sets.constFind(order.at(i));
 		if (it != sets.cend()) {
-			if (!(it->flags & MTPDstickerSet::flag_disabled) || ((it->flags & MTPDstickerSet::flag_official) && includeDisabledOfficial)) {
+			if (!(it->flags & MTPDstickerSet::Flag::f_disabled) || ((it->flags & MTPDstickerSet::Flag::f_official) && includeDisabledOfficial)) {
 				++result;
 			}
 		}

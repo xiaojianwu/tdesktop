@@ -1,4 +1,4 @@
-##Build instructions for Xcode 6.4
+##Build instructions for Xcode 7.2.1
 
 ###Prepare folder
 
@@ -90,10 +90,6 @@ In Terminal go to **/Users/user/TBuild/Libraries/xz-5.0.5** and there run:
     make
     sudo make install
 
-####zlib 1.2.8
-
-Using the system lib
-
 ####libexif 0.6.20
 #####Get the source code
 
@@ -177,7 +173,7 @@ In Terminal go to **/Users/user/TBuild/Libraries** and run:
 
 In Terminal go to **/Users/user/TBuild/Libraries/libiconv-1.14** and run:
 
-    ./configure --enable-static
+    CFLAGS="-mmacosx-version-min=10.8" CPPFLAGS="-mmacosx-version-min=10.8" LDFLAGS="-mmacosx-version-min=10.8" ./configure --enable-static
     make
     sudo make install
 
@@ -196,32 +192,32 @@ Then in Terminal go to **/Users/user/TBuild/Libraries/ffmpeg** and run:
     make
     sudo make install
 
-####Qt 5.5.1, slightly patched
+####Qt 5.6.0, slightly patched
 #####Get the source code
 
 In Terminal go to **/Users/user/TBuild/Libraries** and run:
 
-    git clone git://code.qt.io/qt/qt5.git QtStatic
-    cd QtStatic
-    git checkout 5.5
+    git clone git://code.qt.io/qt/qt5.git qt5_6_0
+    cd qt5_6_0
+    git checkout 5.6
     perl init-repository --module-subset=qtbase,qtimageformats
-    git checkout v5.5.1
-    cd qtimageformats && git checkout v5.5.1 && cd ..
-    cd qtbase && git checkout v5.5.1 && cd ..
+    git checkout v5.6.0
+    cd qtimageformats && git checkout v5.6.0 && cd ..
+    cd qtbase && git checkout v5.6.0 && cd ..
 
 #####Apply the patch
 
-From **/Users/user/TBuild/Libraries/QtStatic/qtbase**, run:
+From **/Users/user/TBuild/Libraries/qt5_6_0/qtbase**, run:
 
-    git apply ../../../tdesktop/Telegram/_qtbase_5_5_1_patch.diff
+    git apply ../../../tdesktop/Telegram/Patches/qtbase_5_6_0.diff
 
 #####Building library
 
-Go to **/Users/user/TBuild/Libraries/QtStatic** and run:
+Go to **/Users/user/TBuild/Libraries/qt5_6_0** and run:
 
-    ./configure -debug-and-release -opensource -confirm-license -static -opengl desktop -no-openssl -securetransport -nomake examples -nomake tests -platform macx-clang
+    ./configure -prefix "/usr/local/tdesktop/Qt-5.6.0" -debug-and-release -force-debug-info -opensource -confirm-license -static -opengl desktop -no-openssl -securetransport -nomake examples -nomake tests -platform macx-clang
     make -j4
-    sudo make -j4 install
+    sudo make install
 
 Building (**make** command) will take a really long time.
 
@@ -235,7 +231,7 @@ In Terminal go to **/Users/user/TBuild/Libraries** and run:
     git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
     cd gyp
     ./setup.py build
-    sudo setup.py install
+    sudo ./setup.py install
     cd ..
 
 #####Build crashpad
@@ -247,7 +243,7 @@ In Terminal go to **/Users/user/TBuild/Libraries** and run:
     cd crashpad
     fetch crashpad
     cd crashpad/third_party/mini_chromium/mini_chromium
-    git apply ../../../../../../tdesktop/Telegram/_mini_chromium_patch.diff
+    git apply ../../../../../../tdesktop/Telegram/Patches/mini_chromium.diff
     cd ../../../
     build/gyp_crashpad.py -Dmac_deployment_target=10.8
     ninja -C out/Release
@@ -255,7 +251,6 @@ In Terminal go to **/Users/user/TBuild/Libraries** and run:
 ###Building Telegram Desktop
 
 * Launch Xcode, all projects will be taken from **/Users/user/TBuild/tdesktop/Telegram**
-* Open MetaStyle.xcodeproj and build for Debug (Release optionally)
 * Open MetaEmoji.xcodeproj and build for Debug (Release optionally)
 * Open MetaLang.xcodeproj and build for Debug (Release optionally)
 * Open Telegram.xcodeproj and build for Debug

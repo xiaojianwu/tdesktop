@@ -20,21 +20,19 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #include "stdafx.h"
 #include "application.h"
-#include "style.h"
 
 #include "shortcuts.h"
-
 #include "pspecific.h"
 #include "fileuploader.h"
 #include "mainwidget.h"
-
 #include "lang.h"
 #include "boxes/confirmbox.h"
+#include "ui/filedialog.h"
 #include "langloaderplain.h"
-
 #include "localstorage.h"
-
 #include "autoupdater.h"
+#include "core/observer.h"
+#include "observer_peer.h"
 
 namespace {
 	void mtpStateChanged(int32 dc, int32 state) {
@@ -90,14 +88,7 @@ namespace {
 
 AppClass *AppObject = 0;
 
-Application::Application(int &argc, char **argv) : QApplication(argc, argv)
-, _secondInstance(false)
-#ifndef TDESKTOP_DISABLE_AUTOUPDATE
-, _updateReply(0)
-, _updateThread(0)
-, _updateChecker(0)
-#endif
-{
+Application::Application(int &argc, char **argv) : QApplication(argc, argv) {
 	QByteArray d(QFile::encodeName(QDir(cWorkingDir()).absolutePath()));
 	char h[33] = { 0 };
 	hashMd5Hex(d.constData(), d.size(), h);
@@ -120,16 +111,16 @@ Application::Application(int &argc, char **argv) : QApplication(argc, argv)
 #endif
 
 	if (cManyInstance()) {
-		LOG(("Many instance allowed, starting.."));
+		LOG(("Many instance allowed, starting..."));
 		singleInstanceChecked();
 	} else {
-        LOG(("Connecting local socket to %1..").arg(_localServerName));
+        LOG(("Connecting local socket to %1...").arg(_localServerName));
 		_localSocket.connectToServer(_localServerName);
 	}
 }
 
 void Application::socketConnected() {
-	LOG(("Socket connected, this is not the first application instance, sending show command.."));
+	LOG(("Socket connected, this is not the first application instance, sending show command..."));
 	_secondInstance = true;
 
 	QString commands;
@@ -154,7 +145,7 @@ void Application::socketWritten(qint64/* bytes*/) {
 	if (_localSocket.bytesToWrite()) {
 		return;
 	}
-	LOG(("Show command written, waiting response.."));
+	LOG(("Show command written, waiting response..."));
 }
 
 void Application::socketReading() {
@@ -166,7 +157,7 @@ void Application::socketReading() {
 	if (QRegularExpression("RES:(\\d+);").match(_localSocketReadData).hasMatch()) {
 		uint64 pid = _localSocketReadData.mid(4, _localSocketReadData.length() - 5).toULongLong();
 		psActivateProcess(pid);
-		LOG(("Show command response received, pid = %1, activating and quitting..").arg(pid));
+		LOG(("Show command response received, pid = %1, activating and quitting...").arg(pid));
 		return App::quit();
 	}
 }
@@ -175,28 +166,31 @@ void Application::socketError(QLocalSocket::LocalSocketError e) {
 	if (App::quitting()) return;
 
 	if (_secondInstance) {
-		LOG(("Could not write show command, error %1, quitting..").arg(e));
+		LOG(("Could not write show command, error %1, quitting...").arg(e));
 		return App::quit();
 	}
 
 	if (e == QLocalSocket::ServerNotFoundError) {
-		LOG(("This is the only instance of Telegram, starting server and app.."));
+		LOG(("This is the only instance of Telegram, starting server and app..."));
 	} else {
-		LOG(("Socket connect error %1, starting server and app..").arg(e));
+		LOG(("Socket connect error %1, starting server and app...").arg(e));
 	}
 	_localSocket.close();
 
+// Local server does not work in WinRT build.
+#ifndef Q_OS_WINRT
 	psCheckLocalSocket(_localServerName);
 
 	if (!_localServer.listen(_localServerName)) {
 		LOG(("Failed to start listening to %1 server, error %2").arg(_localServerName).arg(int(_localServer.serverError())));
 		return App::quit();
 	}
+#endif // !Q_OS_WINRT
 
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
 	if (!cNoStartUpdate() && checkReadyUpdate()) {
 		cSetRestartingUpdate(true);
-		DEBUG_LOG(("Application Info: installing update instead of starting app.."));
+		DEBUG_LOG(("Application Info: installing update instead of starting app..."));
 		return App::quit();
 	}
 #endif
@@ -209,6 +203,7 @@ void Application::singleInstanceChecked() {
 		Logs::multipleInstances();
 	}
 
+	Notify::startObservers();
 	Sandbox::start();
 
 	if (!Logs::started() || (!cManyInstance() && !Logs::instanceChecked())) {
@@ -235,7 +230,7 @@ void Application::singleInstanceChecked() {
 
 void Application::socketDisconnected() {
 	if (_secondInstance) {
-		DEBUG_LOG(("Application Error: socket disconnected before command response received, quitting.."));
+		DEBUG_LOG(("Application Error: socket disconnected before command response received, quitting..."));
 		return App::quit();
 	}
 }
@@ -320,7 +315,7 @@ void Application::startApplication() {
 }
 
 void Application::closeApplication() {
-	if (App::launchState() != App::QuitProcessed);
+	if (App::launchState() == App::QuitProcessed) return;
 	App::setLaunchState(App::QuitProcessed);
 
 	delete AppObject;
@@ -345,6 +340,8 @@ void Application::closeApplication() {
 	if (_updateThread) _updateThread->quit();
 	_updateThread = 0;
 #endif
+
+	Notify::finishObservers();
 }
 
 #ifndef TDESKTOP_DISABLE_AUTOUPDATE
@@ -476,8 +473,8 @@ void Application::startUpdateCheck(bool forceWait) {
 		QUrl url(cUpdateURL());
 		if (cBetaVersion()) {
 			url.setQuery(qsl("version=%1&beta=%2").arg(AppVersion).arg(cBetaVersion()));
-		} else if (cDevVersion()) {
-			url.setQuery(qsl("version=%1&dev=1").arg(AppVersion));
+		} else if (cAlphaVersion()) {
+			url.setQuery(qsl("version=%1&alpha=1").arg(AppVersion));
 		} else {
 			url.setQuery(qsl("version=%1").arg(AppVersion));
 		}
@@ -690,7 +687,7 @@ AppClass::AppClass() : QObject()
 			cSetLang(languageDefault);
 		}
 	} else if (cLang() > languageDefault && cLang() < languageCount) {
-		LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[cLang()] + qsl(".strings"));
+		LangLoaderPlain loader(qsl(":/langs/lang_") + LanguageCodes[cLang()].c_str() + qsl(".strings"));
 		if (!loader.errors().isEmpty()) {
 			LOG(("Lang load errors: %1").arg(loader.errors()));
 		} else if (!loader.warnings().isEmpty()) {
@@ -704,7 +701,7 @@ AppClass::AppClass() : QObject()
 	anim::startManager();
 	historyInit();
 
-	DEBUG_LOG(("Application Info: inited.."));
+	DEBUG_LOG(("Application Info: inited..."));
 
 	application()->installNativeEventFilter(psNativeEventFilter());
 
@@ -714,17 +711,17 @@ AppClass::AppClass() : QObject()
 
 	connect(&killDownloadSessionsTimer, SIGNAL(timeout()), this, SLOT(killDownloadSessions()));
 
-	DEBUG_LOG(("Application Info: starting app.."));
+	DEBUG_LOG(("Application Info: starting app..."));
 
 	QMimeDatabase().mimeTypeForName(qsl("text/plain")); // create mime database
 
-	_window = new Window();
+	_window = new MainWindow();
 	_window->createWinId();
 	_window->init();
 
 	Sandbox::connect(SIGNAL(applicationStateChanged(Qt::ApplicationState)), this, SLOT(onAppStateChanged(Qt::ApplicationState)));
 
-	DEBUG_LOG(("Application Info: window created.."));
+	DEBUG_LOG(("Application Info: window created..."));
 
 	Shortcuts::start();
 
@@ -734,16 +731,16 @@ AppClass::AppClass() : QObject()
 	Local::ReadMapState state = Local::readMap(QByteArray());
 	if (state == Local::ReadMapPassNeeded) {
 		cSetHasPasscode(true);
-		DEBUG_LOG(("Application Info: passcode nneded.."));
+		DEBUG_LOG(("Application Info: passcode needed..."));
 	} else {
-		DEBUG_LOG(("Application Info: local map read.."));
+		DEBUG_LOG(("Application Info: local map read..."));
 		MTP::start();
 	}
 
 	MTP::setStateChangedHandler(mtpStateChanged);
 	MTP::setSessionResetHandler(mtpSessionReset);
 
-	DEBUG_LOG(("Application Info: MTP started.."));
+	DEBUG_LOG(("Application Info: MTP started..."));
 
 	DEBUG_LOG(("Application Info: showing."));
 	if (state == Local::ReadMapPassNeeded) {
@@ -761,7 +758,9 @@ AppClass::AppClass() : QObject()
 		_window->showSettings();
 	}
 
+#ifndef TDESKTOP_DISABLE_NETWORK_PROXY
 	QNetworkProxyFactory::setUseSystemConfiguration(true);
+#endif
 
 	if (state != Local::ReadMapPassNeeded) {
 		checkMapVersion();
@@ -779,10 +778,6 @@ AppClass::AppClass() : QObject()
 
 void AppClass::regPhotoUpdate(const PeerId &peer, const FullMsgId &msgId) {
 	photoUpdates.insert(msgId, peer);
-}
-
-void AppClass::clearPhotoUpdates() {
-	photoUpdates.clear();
 }
 
 bool AppClass::isPhotoUpdating(const PeerId &peer) {
@@ -833,7 +828,7 @@ void AppClass::chatPhotoCleared(PeerId peer, const MTPUpdates &updates) {
 
 void AppClass::selfPhotoDone(const MTPphotos_Photo &result) {
 	if (!App::self()) return;
-	const MTPDphotos_photo &photo(result.c_photos_photo());
+	const auto &photo(result.c_photos_photo());
 	App::feedPhoto(photo.vphoto);
 	App::feedUsers(photo.vusers);
 	cancelPhotoUpdate(App::self()->id);
@@ -849,7 +844,7 @@ void AppClass::chatPhotoDone(PeerId peer, const MTPUpdates &updates) {
 }
 
 bool AppClass::peerPhotoFail(PeerId peer, const RPCError &error) {
-	if (mtpIsFlood(error)) return false;
+	if (MTP::isDefaultHandledError(error)) return false;
 
 	LOG(("Application Error: update photo failed %1: %2").arg(error.type()).arg(error.description()));
 	cancelPhotoUpdate(peer);
@@ -899,12 +894,34 @@ void AppClass::onAppStateChanged(Qt::ApplicationState state) {
 	}
 }
 
+void AppClass::call_handleHistoryUpdate() {
+	Notify::handlePendingHistoryUpdate();
+}
+
+void AppClass::call_handleUnreadCounterUpdate() {
+	if (auto w = App::wnd()) {
+		w->updateUnreadCounter();
+	}
+}
+
+void AppClass::call_handleFileDialogQueue() {
+	while (true) {
+		if (!FileDialog::processQuery()) {
+			return;
+		}
+	}
+}
+
+void AppClass::call_handleDelayedPeerUpdates() {
+	Notify::peerUpdatedSendDelayed();
+}
+
 void AppClass::killDownloadSessions() {
 	uint64 ms = getms(), left = MTPAckSendWaiting + MTPKillFileSessionTimeout;
 	for (QMap<int32, uint64>::iterator i = killDownloadSessionTimes.begin(); i != killDownloadSessionTimes.end(); ) {
 		if (i.value() <= ms) {
 			for (int j = 0; j < MTPDownloadSessionsCount; ++j) {
-				MTP::stopSession(MTP::dld(j) + i.key());
+				MTP::stopSession(MTP::dldDcId(i.key(), j));
 			}
 			i = killDownloadSessionTimes.erase(i);
 		} else {
@@ -956,6 +973,15 @@ void AppClass::onSwitchDebugMode() {
 	}
 }
 
+void AppClass::onSwitchWorkMode() {
+	Global::SetDialogsModeEnabled(!Global::DialogsModeEnabled());
+	Global::SetDialogsMode(Dialogs::Mode::All);
+	Local::writeUserSettings();
+	cSetRestarting(true);
+	cSetRestartingToSettings(true);
+	App::quit();
+}
+
 void AppClass::onSwitchTestMode() {
 	if (cTestMode()) {
 		QFile(cWorkingDir() + qsl("tdata/withtestmode")).remove();
@@ -998,7 +1024,7 @@ void AppClass::uploadProfilePhoto(const QImage &tosend, const PeerId &peerId) {
 	QBuffer jpegBuffer(&jpeg);
 	full.save(&jpegBuffer, "JPG", 87);
 
-	PhotoId id = MTP::nonce<PhotoId>();
+	PhotoId id = rand_value<PhotoId>();
 
 	MTPPhoto photo(MTP_photo(MTP_long(id), MTP_long(0), MTP_int(unixtime()), MTP_vector<MTPPhotoSize>(photoSizes)));
 
@@ -1006,7 +1032,7 @@ void AppClass::uploadProfilePhoto(const QImage &tosend, const PeerId &peerId) {
 	int32 filesize = 0;
 	QByteArray data;
 
-	ReadyLocalMedia ready(PreparePhoto, file, filename, filesize, data, id, id, qsl("jpg"), peerId, photo, photoThumbs, MTP_documentEmpty(MTP_long(0)), jpeg, false, false, 0);
+	ReadyLocalMedia ready(PreparePhoto, file, filename, filesize, data, id, id, qsl("jpg"), peerId, photo, photoThumbs, MTP_documentEmpty(MTP_long(0)), jpeg, false, 0);
 
 	connect(App::uploader(), SIGNAL(photoReady(const FullMsgId&,bool,const MTPInputFile&)), App::app(), SLOT(photoUpdated(const FullMsgId&,bool,const MTPInputFile&)), Qt::UniqueConnection);
 
@@ -1019,29 +1045,30 @@ void AppClass::checkMapVersion() {
     if (Local::oldMapVersion() < AppVersion) {
 		if (Local::oldMapVersion()) {
 			QString versionFeatures;
-			if ((cDevVersion() || cBetaVersion()) && Local::oldMapVersion() < 9029) {
-				QString ctrl = (cPlatform() == dbipMac || cPlatform() == dbipMacOld) ? qsl("Cmd") : qsl("Ctrl");
-				versionFeatures = QString::fromUtf8("\xe2\x80\x94 %1+W or %2+F4 for close window\n\xe2\x80\x94 %3+L to lock Telegram if you use a local passcode\n\xe2\x80\x94 Bug fixes and other minor improvements").arg(ctrl).arg(ctrl).arg(ctrl);// .replace('@', qsl("@") + QChar(0x200D));
-			} else if (Local::oldMapVersion() < 9027) {
-				versionFeatures = lang(lng_new_version_text).trimmed();
+			if ((cAlphaVersion() || cBetaVersion()) && Local::oldMapVersion() < 9057) {
+#if defined Q_OS_LINUX32 || defined Q_OS_LINUX64
+				versionFeatures = QString::fromUtf8("\xe2\x80\x94 Design improvements\n\xe2\x80\x94 Linux : trying to use GTK file chooser when it is available");
+#else // Q_OS_LINUX32 || Q_OS_LINUX64
+				versionFeatures = QString::fromUtf8("\xe2\x80\x94 Design improvements");
+#endif // Q_OS_LINUX32 || Q_OS_LINUX64
+//				versionFeatures = langNewVersionText();
+			} else if (Local::oldMapVersion() < 9056) {
+				versionFeatures = langNewVersionText();
 			} else {
 				versionFeatures = lang(lng_new_version_minor).trimmed();
 			}
 			if (!versionFeatures.isEmpty()) {
-				versionFeatures = lng_new_version_wrap(lt_version, QString::fromStdWString(AppVersionStr), lt_changes, versionFeatures, lt_link, qsl("https://desktop.telegram.org/#changelog"));
+				versionFeatures = lng_new_version_wrap(lt_version, QString::fromLatin1(AppVersionStr.c_str()), lt_changes, versionFeatures, lt_link, qsl("https://desktop.telegram.org/#changelog"));
 				_window->serviceNotification(versionFeatures);
 			}
 		}
-	}
-	if (cNeedConfigResave()) {
-		Local::writeUserSettings();
 	}
 }
 
 AppClass::~AppClass() {
 	Shortcuts::finish();
 
-	if (Window *w = _window) {
+	if (auto w = _window) {
 		_window = 0;
 		delete w;
 	}
@@ -1074,7 +1101,7 @@ AppClass *AppClass::app() {
 	return AppObject;
 }
 
-Window *AppClass::wnd() {
+MainWindow *AppClass::wnd() {
 	return AppObject ? AppObject->_window : 0;
 }
 

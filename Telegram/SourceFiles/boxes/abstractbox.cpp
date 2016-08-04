@@ -25,13 +25,13 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 
 #include "abstractbox.h"
 #include "mainwidget.h"
-#include "window.h"
+#include "mainwindow.h"
 
 void BlueTitleShadow::paintEvent(QPaintEvent *e) {
 	Painter p(this);
 
 	QRect r(e->rect());
-	p.drawPixmap(QRect(r.left(), 0, r.width(), height()), App::sprite(), st::boxBlueShadow);
+	p.drawPixmap(QRect(r.left(), 0, r.width(), height()), App::sprite(), st::boxBlueShadow.rect());
 }
 
 BlueTitleClose::BlueTitleClose(QWidget *parent) : Button(parent)

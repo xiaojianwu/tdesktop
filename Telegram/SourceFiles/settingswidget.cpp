@@ -19,11 +19,11 @@ Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #include "stdafx.h"
-#include "style.h"
-#include "lang.h"
-
-#include "boxes/aboutbox.h"
 #include "settingswidget.h"
+
+#include "observer_peer.h"
+#include "lang.h"
+#include "boxes/aboutbox.h"
 #include "mainwidget.h"
 #include "application.h"
 #include "boxes/photocropbox.h"
@@ -40,10 +40,9 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 #include "boxes/sessionsbox.h"
 #include "boxes/stickersetbox.h"
 #include "langloaderplain.h"
-#include "gui/filedialog.h"
-
+#include "ui/filedialog.h"
+#include "apiwrap.h"
 #include "autoupdater.h"
-
 #include "localstorage.h"
 
 Slider::Slider(QWidget *parent, const style::slider &st, int32 count, int32 sel) : QWidget(parent),
@@ -89,12 +88,12 @@ void Slider::setSelected(int32 sel) {
 }
 
 void Slider::paintEvent(QPaintEvent *e) {
-	QPainter p(this);
+	Painter p(this);
 
-	p.fillRect(0, (height() - _st.thikness) / 2, width(), _st.thikness, _st.color->b);
+	p.fillRect(0, (height() - _st.thickness) / 2, width(), _st.thickness, _st.color->b);
 
 	int32 x = qFloor(_sel * float64(width() - _st.bar.pxWidth()) / (_count - 1)), y = (height() - _st.bar.pxHeight()) / 2;
-	p.drawPixmap(QPoint(x, y), App::sprite(), _st.bar);
+	p.drawSprite(QPoint(x, y), _st.bar);
 }
 
 QString scaleLabel(DBIScale scale) {
@@ -124,7 +123,7 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 , _a_photo(animation(this, &SettingsInner::step_photo))
 
 // contact info
-, _phoneText(self() ? App::formatPhone(self()->phone) : QString())
+, _phoneText(self() ? App::formatPhone(self()->phone()) : QString())
 , _chooseUsername(this, (self() && !self()->username.isEmpty()) ? ('@' + self()->username) : lang(lng_settings_choose_username))
 
 // notifications
@@ -189,6 +188,7 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 , _tileBackground(this, lang(lng_settings_bg_tile), cTileBackground())
 , _adaptiveForWide(this, lang(lng_settings_adaptive_wide), Global::AdaptiveForWide())
 , _needBackgroundUpdate(false)
+, _radial(animation(this, &SettingsInner::step_radial))
 
 // advanced
 , _passcodeEdit(this, lang(cHasPasscode() ? lng_passcode_change : lng_passcode_turn_on))
@@ -205,17 +205,23 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 , _showSessions(this, lang(lng_settings_show_sessions))
 , _askQuestion(this, lang(lng_settings_ask_question))
 , _telegramFAQ(this, lang(lng_settings_faq))
-, _logOut(this, lang(lng_settings_logout), st::btnLogout)
+, _logOut(this, lang(lng_settings_logout), st::btnRedLink)
 , _supportGetRequest(0) {
+	Notify::registerPeerObserver(Notify::PeerUpdate::Flag::UsernameChanged, this, &SettingsInner::notifyPeerUpdated);
+
+	App::clearMousedItems();
+
 	if (self()) {
-		self()->photo->load();
+		self()->loadUserpic();
 
 		connect(App::wnd(), SIGNAL(imageLoaded()), this, SLOT(update()));
 		connect(App::api(), SIGNAL(fullPeerUpdated(PeerData*)), this, SLOT(onFullPeerUpdated(PeerData*)));
 
 		_nameText.setText(st::setNameFont, _nameCache, _textNameOptions);
 		PhotoData *selfPhoto = (self()->photoId && self()->photoId != UnknownPeerPhotoId) ? App::photo(self()->photoId) : 0;
-		if (selfPhoto && selfPhoto->date) _photoLink = TextLinkPtr(new PhotoLink(selfPhoto, self()));
+		if (selfPhoto && selfPhoto->date) {
+			_photoLink.reset(new PhotoOpenClickHandler(selfPhoto, self()));
+		}
 		App::api()->requestFullPeer(self());
 		onReloadPassword();
 
@@ -264,18 +270,18 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 	connect(&_dpiAutoScale, SIGNAL(changed()), this, SLOT(onScaleAuto()));
 	connect(&_dpiSlider, SIGNAL(changed(int32)), this, SLOT(onScaleChange()));
 
-	_curVersionText = lng_settings_current_version(lt_version, QString::fromWCharArray(AppVersionStr) + (cDevVersion() ? " dev" : "") + (cBetaVersion() ? qsl(" beta %1").arg(cBetaVersion()) : QString())) + ' ';
+	_curVersionText = lng_settings_current_version(lt_version, QString::fromLatin1(AppVersionStr.c_str()) + (cAlphaVersion() ? " alpha" : "") + (cBetaVersion() ? qsl(" beta %1").arg(cBetaVersion()) : QString())) + ' ';
 	_curVersionWidth = st::linkFont->width(_curVersionText);
 	_newVersionText = lang(lng_settings_update_ready) + ' ';
 	_newVersionWidth = st::linkFont->width(_newVersionText);
 
-	#ifndef TDESKTOP_DISABLE_AUTOUPDATE
+#ifndef TDESKTOP_DISABLE_AUTOUPDATE
 	Sandbox::connect(SIGNAL(updateChecking()), this, SLOT(onUpdateChecking()));
 	Sandbox::connect(SIGNAL(updateLatest()), this, SLOT(onUpdateLatest()));
 	Sandbox::connect(SIGNAL(updateProgress(qint64,qint64)), this, SLOT(onUpdateDownloading(qint64,qint64)));
 	Sandbox::connect(SIGNAL(updateFailed()), this, SLOT(onUpdateFailed()));
 	Sandbox::connect(SIGNAL(updateReady()), this, SLOT(onUpdateReady()));
-	#endif
+#endif
 
 	// chat options
 	connect(&_replaceEmojis, SIGNAL(changed()), this, SLOT(onReplaceEmojis()));
@@ -289,9 +295,9 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 	connect(&_downloadPathEdit, SIGNAL(clicked()), this, SLOT(onDownloadPathEdit()));
 	connect(&_downloadPathClear, SIGNAL(clicked()), this, SLOT(onDownloadPathClear()));
 	switch (App::wnd()->tempDirState()) {
-	case Window::TempDirEmpty: _tempDirClearState = TempDirEmpty; break;
-	case Window::TempDirExists: _tempDirClearState = TempDirExists; break;
-	case Window::TempDirRemoving: _tempDirClearState = TempDirClearing; break;
+	case MainWindow::TempDirEmpty: _tempDirClearState = TempDirEmpty; break;
+	case MainWindow::TempDirExists: _tempDirClearState = TempDirExists; break;
+	case MainWindow::TempDirRemoving: _tempDirClearState = TempDirClearing; break;
 	}
 	connect(App::wnd(), SIGNAL(tempDirCleared(int)), this, SLOT(onTempDirCleared(int)));
 	connect(App::wnd(), SIGNAL(tempDirClearFailed(int)), this, SLOT(onTempDirClearFailed(int)));
@@ -300,9 +306,9 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 	// local storage
 	connect(&_localStorageClear, SIGNAL(clicked()), this, SLOT(onLocalStorageClear()));
 	switch (App::wnd()->localStorageState()) {
-	case Window::TempDirEmpty: _storageClearState = TempDirEmpty; break;
-	case Window::TempDirExists: _storageClearState = TempDirExists; break;
-	case Window::TempDirRemoving: _storageClearState = TempDirClearing; break;
+	case MainWindow::TempDirEmpty: _storageClearState = TempDirEmpty; break;
+	case MainWindow::TempDirExists: _storageClearState = TempDirExists; break;
+	case MainWindow::TempDirRemoving: _storageClearState = TempDirClearing; break;
 	}
 
 	// chat background
@@ -313,13 +319,19 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 	connect(&_tileBackground, SIGNAL(changed()), this, SLOT(onTileBackground()));
 	connect(&_adaptiveForWide, SIGNAL(changed()), this, SLOT(onAdaptiveForWide()));
 
+	if (radialLoading()) {
+		radialStart();
+	}
+
 	// advanced
 	connect(&_passcodeEdit, SIGNAL(clicked()), this, SLOT(onPasscode()));
 	connect(&_passcodeTurnOff, SIGNAL(clicked()), this, SLOT(onPasscodeOff()));
 	connect(&_autoLock, SIGNAL(clicked()), this, SLOT(onAutoLock()));
 	connect(&_passwordEdit, SIGNAL(clicked()), this, SLOT(onPassword()));
 	connect(&_passwordTurnOff, SIGNAL(clicked()), this, SLOT(onPasswordOff()));
+#ifndef TDESKTOP_DISABLE_NETWORK_PROXY
 	connect(&_connectionType, SIGNAL(clicked()), this, SLOT(onConnectionType()));
+#endif
 	connect(&_showSessions, SIGNAL(clicked()), this, SLOT(onShowSessions()));
 	connect(&_askQuestion, SIGNAL(clicked()), this, SLOT(onAskQuestion()));
 	connect(&_telegramFAQ, SIGNAL(clicked()), this, SLOT(onTelegramFAQ()));
@@ -347,18 +359,26 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : TWidget(parent)
 	setMouseTracking(true);
 }
 
+void SettingsInner::notifyPeerUpdated(const Notify::PeerUpdate &update) {
+	if (update.peer == App::self()) {
+		if (update.flags & Notify::PeerUpdate::Flag::UsernameChanged) {
+			usernameChanged();
+		}
+	}
+}
+
 void SettingsInner::peerUpdated(PeerData *data) {
 	if (self() && data == self()) {
 		if (self()->photoId && self()->photoId != UnknownPeerPhotoId) {
 			PhotoData *selfPhoto = App::photo(self()->photoId);
 			if (selfPhoto->date) {
-				_photoLink = TextLinkPtr(new PhotoLink(selfPhoto, self()));
+				_photoLink.reset(new PhotoOpenClickHandler(selfPhoto, self()));
 			} else {
-				_photoLink = TextLinkPtr();
+				_photoLink.clear();
 				App::api()->requestFullPeer(self());
 			}
 		} else {
-			_photoLink = TextLinkPtr();
+			_photoLink.clear();
 		}
 
 		if (_nameCache != self()->name) {
@@ -370,19 +390,7 @@ void SettingsInner::peerUpdated(PeerData *data) {
 }
 
 void SettingsInner::paintEvent(QPaintEvent *e) {
-	bool animateBackground = false;
-	if (App::main() && App::main()->chatBackgroundLoading()) {
-		App::main()->checkChatBackground();
-		if (App::main()->chatBackgroundLoading()) {
-			animateBackground = true;
-		} else {
-			updateChatBackground();
-		}
-	} else if (_needBackgroundUpdate) {
-		updateChatBackground();
-	}
-
-	QPainter p(this);
+	Painter p(this);
 
 	p.setClipRect(e->rect());
 
@@ -399,21 +407,21 @@ void SettingsInner::paintEvent(QPaintEvent *e) {
 		}
 
 		if (_photoLink) {
-			p.drawPixmap(_left, top, self()->photo->pix(st::setPhotoSize));
+			self()->paintUserpicLeft(p, st::setPhotoSize, _left, top, st::setWidth);
 		} else {
 			if (a_photoOver.current() < 1) {
-				p.drawPixmap(QPoint(_left, top), App::sprite(), st::setPhotoImg);
+				p.drawSprite(QPoint(_left, top), st::setPhotoImg);
 			}
 			if (a_photoOver.current() > 0) {
 				p.setOpacity(a_photoOver.current());
-				p.drawPixmap(QPoint(_left, top), App::sprite(), st::setOverPhotoImg);
+				p.drawSprite(QPoint(_left, top), st::setOverPhotoImg);
 				p.setOpacity(1);
 			}
 		}
 
 		p.setFont(st::setStatusFont->f);
 		bool connecting = App::wnd()->connectingVisible();
-		p.setPen((connecting ? st::profileOfflineColor : st::profileOnlineColor)->p);
+		p.setPen((connecting ? st::profileOfflineFg : st::profileOnlineFg)->p);
 		p.drawText(_uploadPhoto.x() + st::setStatusLeft, top + st::setStatusTop + st::setStatusFont->ascent, lang(connecting ? lng_status_connecting : lng_status_online));
 
 		top += st::setPhotoSize;
@@ -605,32 +613,35 @@ void SettingsInner::paintEvent(QPaintEvent *e) {
 		p.drawText(_left + st::setHeaderLeft, top + st::setHeaderTop + st::setHeaderFont->ascent, lang(lng_settings_section_background));
 		top += st::setHeaderSkip;
 
-		if (animateBackground) {
-			const QPixmap &pix = App::main()->newBackgroundThumb()->pixBlurred(st::setBackgroundSize);
-
-			p.drawPixmap(_left, top, st::setBackgroundSize, st::setBackgroundSize, pix, 0, (pix.height() - st::setBackgroundSize) / 2, st::setBackgroundSize, st::setBackgroundSize);
-
-			uint64 dt = getms();
-			int32 cnt = int32(st::photoLoaderCnt), period = int32(st::photoLoaderPeriod), t = dt % period, delta = int32(st::photoLoaderDelta);
-
-			int32 x = _left + (st::setBackgroundSize - st::mediaviewLoader.width()) / 2;
-			int32 y = top + (st::setBackgroundSize - st::mediaviewLoader.height()) / 2;
-			p.fillRect(x, y, st::mediaviewLoader.width(), st::mediaviewLoader.height(), st::photoLoaderBg->b);
-
-			x += (st::mediaviewLoader.width() - cnt * st::mediaviewLoaderPoint.width() - (cnt - 1) * st::mediaviewLoaderSkip) / 2;
-			y += (st::mediaviewLoader.height() - st::mediaviewLoaderPoint.height()) / 2;
-			QColor c(st::white->c);
-			QBrush b(c);
-			for (int32 i = 0; i < cnt; ++i) {
-				t -= delta;
-				while (t < 0) t += period;
-
-				float64 alpha = (t >= st::photoLoaderDuration1 + st::photoLoaderDuration2) ? 0 : ((t > st::photoLoaderDuration1 ? ((st::photoLoaderDuration1 + st::photoLoaderDuration2 - t) / st::photoLoaderDuration2) : (t / st::photoLoaderDuration1)));
-				c.setAlphaF(st::photoLoaderAlphaMin + alpha * (1 - st::photoLoaderAlphaMin));
-				b.setColor(c);
-				p.fillRect(x + i * (st::mediaviewLoaderPoint.width() + st::mediaviewLoaderSkip), y, st::mediaviewLoaderPoint.width(), st::mediaviewLoaderPoint.height(), b);
+		bool radial = false;
+		float64 radialOpacity = 0;
+		if (_radial.animating()) {
+			_radial.step(getms());
+			radial = _radial.animating();
+			radialOpacity = _radial.opacity();
+		}
+		if (radial) {
+			auto backThumb = App::main() ? App::main()->newBackgroundThumb() : ImagePtr();
+			if (backThumb->isNull()) {
+				p.drawPixmap(_left, top, _background);
+			} else {
+				const QPixmap &pix = App::main()->newBackgroundThumb()->pixBlurred(st::setBackgroundSize);
+				p.drawPixmap(_left, top, st::setBackgroundSize, st::setBackgroundSize, pix, 0, (pix.height() - st::setBackgroundSize) / 2, st::setBackgroundSize, st::setBackgroundSize);
 			}
-			QTimer::singleShot(AnimationTimerDelta, this, SLOT(updateBackgroundRect()));
+
+			auto outer = radialRect();
+			QRect inner(QPoint(outer.x() + (outer.width() - st::radialSize.width()) / 2, outer.y() + (outer.height() - st::radialSize.height()) / 2), st::radialSize);
+			p.setPen(Qt::NoPen);
+			p.setBrush(st::black);
+			p.setOpacity(radialOpacity * st::radialBgOpacity);
+
+			p.setRenderHint(QPainter::HighQualityAntialiasing);
+			p.drawEllipse(inner);
+			p.setRenderHint(QPainter::HighQualityAntialiasing, false);
+
+			p.setOpacity(1);
+			QRect arc(inner.marginsRemoved(QMargins(st::radialLine, st::radialLine, st::radialLine, st::radialLine)));
+			_radial.draw(p, arc, st::radialLine, st::white);
 		} else {
 			p.drawPixmap(_left, top, _background);
 		}
@@ -811,11 +822,47 @@ void SettingsInner::keyPressEvent(QKeyEvent *e) {
 			Ui::showLayer(box);
 			from = size;
 			break;
-        } else if (str == qstr("loadlang")) {
-            chooseCustomLang();
+		} else if (str == qstr("loadlang")) {
+			chooseCustomLang();
+			break;
+		} else if (str == qstr("debugfiles") && cDebug()) {
+			if (DebugLogging::FileLoader()) {
+				Global::RefDebugLoggingFlags() &= ~DebugLogging::FileLoaderFlag;
+			} else {
+				Global::RefDebugLoggingFlags() |= DebugLogging::FileLoaderFlag;
+			}
+			Ui::showLayer(new InformBox(DebugLogging::FileLoader() ? qsl("Enabled file download logging") : qsl("Disabled file download logging")));
+			break;
 		} else if (str == qstr("crashplease")) {
 			t_assert(!"Crashed in Settings!");
-		} else if (qsl("debugmode").startsWith(str) || qsl("testmode").startsWith(str) || qsl("loadlang").startsWith(str) || qsl("crashplease").startsWith(str)) {
+			break;
+		} else if (str == qstr("workmode")) {
+			auto text = Global::DialogsModeEnabled() ? qsl("Disable work mode?") : qsl("Enable work mode?");
+			auto box = std_::make_unique<ConfirmBox>(text);
+			connect(box.get(), SIGNAL(confirmed()), App::app(), SLOT(onSwitchWorkMode()));
+			Ui::showLayer(box.release());
+			from = size;
+			break;
+		} else if (str == qstr("moderate")) {
+			auto text = Global::ModerateModeEnabled() ? qsl("Disable moderate mode?") : qsl("Enable moderate mode?");
+			auto box = std_::make_unique<ConfirmBox>(text);
+			connect(box.get(), SIGNAL(confirmed()), this, SLOT(onSwitchModerateMode()));
+			Ui::showLayer(box.release());
+			break;
+		} else if (str == qstr("clearstickers")) {
+			auto box = std_::make_unique<ConfirmBox>(qsl("Clear frequently used stickers list?"));
+			connect(box.get(), SIGNAL(confirmed()), this, SLOT(onClearStickers()));
+			Ui::showLayer(box.release());
+			break;
+		} else if (
+			qsl("debugmode").startsWith(str) ||
+			qsl("testmode").startsWith(str) ||
+			qsl("loadlang").startsWith(str) ||
+			qsl("clearstickers").startsWith(str) ||
+			qsl("moderate").startsWith(str) ||
+			qsl("debugfiles").startsWith(str) ||
+			qsl("workmode").startsWith(str) ||
+			qsl("crashplease").startsWith(str)) {
 			break;
 		}
 		++from;
@@ -918,7 +965,7 @@ void SettingsInner::passcodeChanged() {
 }
 
 void SettingsInner::updateBackgroundRect() {
-	update(_left, _tileBackground.y() - st::setLittleSkip - st::setBackgroundSize, st::setBackgroundSize, st::setBackgroundSize);
+	update(radialRect());
 }
 
 void SettingsInner::onFullPeerUpdated(PeerData *peer) {
@@ -926,9 +973,9 @@ void SettingsInner::onFullPeerUpdated(PeerData *peer) {
 
 	PhotoData *selfPhoto = (self()->photoId && self()->photoId != UnknownPeerPhotoId) ? App::photo(self()->photoId) : 0;
 	if (selfPhoto && selfPhoto->date) {
-		_photoLink = TextLinkPtr(new PhotoLink(selfPhoto, self()));
+		_photoLink.reset(new PhotoOpenClickHandler(selfPhoto, self()));
 	} else {
-		_photoLink = TextLinkPtr();
+		_photoLink.clear();
 	}
 }
 
@@ -937,7 +984,7 @@ void SettingsInner::gotPassword(const MTPaccount_Password &result) {
 
 	switch (result.type()) {
 	case mtpc_account_noPassword: {
-		const MTPDaccount_noPassword &d(result.c_account_noPassword());
+		const auto &d(result.c_account_noPassword());
 		_curPasswordSalt = QByteArray();
 		_hasPasswordRecovery = false;
 		_curPasswordHint = QString();
@@ -947,7 +994,7 @@ void SettingsInner::gotPassword(const MTPaccount_Password &result) {
 	} break;
 
 	case mtpc_account_password: {
-		const MTPDaccount_password &d(result.c_account_password());
+		const auto &d(result.c_account_password());
 		_curPasswordSalt = qba(d.vcurrent_salt);
 		_hasPasswordRecovery = mtpIsTrue(d.vhas_recovery);
 		_curPasswordHint = qs(d.vhint);
@@ -970,7 +1017,7 @@ void SettingsInner::offPasswordDone(const MTPBool &result) {
 }
 
 bool SettingsInner::offPasswordFail(const RPCError &error) {
-	if (mtpIsFlood(error)) return false;
+	if (MTP::isDefaultHandledError(error)) return false;
 
 	onReloadPassword();
 	return true;
@@ -1166,7 +1213,7 @@ void SettingsInner::supportGot(const MTPhelp_Support &support) {
 	if (!App::main()) return;
 
 	if (support.type() == mtpc_help_support) {
-		const MTPDhelp_support &d(support.c_help_support());
+		const auto &d(support.c_help_support());
 		UserData *u = App::feedUsers(MTP_vector<MTPUser>(1, d.vuser));
 		Ui::showPeerHistory(u, ShowAtUnreadMsgId);
 		App::wnd()->hideSettings();
@@ -1182,6 +1229,10 @@ void SettingsInner::onUpdatePhotoCancel() {
 }
 
 void SettingsInner::onUpdatePhoto() {
+	if (!self()) {
+		return;
+	}
+
 	saveError();
 
 	QStringList imgExtensions(cImgExtensions());
@@ -1214,6 +1265,30 @@ void SettingsInner::onUpdatePhoto() {
 void SettingsInner::onShowSessions() {
 	SessionsBox *box = new SessionsBox();
 	Ui::showLayer(box);
+}
+
+void SettingsInner::onClearStickers() {
+	auto &recent(cGetRecentStickers());
+	if (!recent.isEmpty()) {
+		recent.clear();
+		Local::writeUserSettings();
+	}
+	auto &sets(Global::RefStickerSets());
+	auto it = sets.find(Stickers::CustomSetId);
+	if (it != sets.cend()) {
+		sets.erase(it);
+		Local::writeStickers();
+	}
+	if (auto m = App::main()) {
+		emit m->stickersUpdated();
+	}
+	Ui::hideLayer();
+}
+
+void SettingsInner::onSwitchModerateMode() {
+	Global::SetModerateModeEnabled(!Global::ModerateModeEnabled());
+	Local::writeUserSettings();
+	Ui::hideLayer();
 }
 
 void SettingsInner::onAskQuestion() {
@@ -1343,9 +1418,9 @@ void SettingsInner::onPasswordOff() {
 		_passwordTurnOff.hide();
 
 //		int32 flags = MTPDaccount_passwordInputSettings::flag_new_salt | MTPDaccount_passwordInputSettings::flag_new_password_hash | MTPDaccount_passwordInputSettings::flag_hint | MTPDaccount_passwordInputSettings::flag_email;
-		int32 flags = MTPDaccount_passwordInputSettings::flag_email;
-		MTPaccount_PasswordInputSettings settings(MTP_account_passwordInputSettings(MTP_int(flags), MTP_string(QByteArray()), MTP_string(QByteArray()), MTP_string(QString()), MTP_string(QString())));
-		MTP::send(MTPaccount_UpdatePasswordSettings(MTP_string(QByteArray()), settings), rpcDone(&SettingsInner::offPasswordDone), rpcFail(&SettingsInner::offPasswordFail));
+		MTPDaccount_passwordInputSettings::Flags flags = MTPDaccount_passwordInputSettings::Flag::f_email;
+		MTPaccount_PasswordInputSettings settings(MTP_account_passwordInputSettings(MTP_flags(flags), MTP_bytes(QByteArray()), MTP_bytes(QByteArray()), MTP_string(QString()), MTP_string(QString())));
+		MTP::send(MTPaccount_UpdatePasswordSettings(MTP_bytes(QByteArray()), settings), rpcDone(&SettingsInner::offPasswordDone), rpcFail(&SettingsInner::offPasswordFail));
 	} else {
 		PasscodeBox *box = new PasscodeBox(_newPasswordSalt, _curPasswordSalt, _hasPasswordRecovery, _curPasswordHint, true);
 		connect(box, SIGNAL(reloadPassword()), this, SLOT(onReloadPassword()));
@@ -1365,11 +1440,13 @@ void SettingsInner::onAutoLock() {
 	Ui::showLayer(box);
 }
 
+#ifndef TDESKTOP_DISABLE_NETWORK_PROXY
 void SettingsInner::onConnectionType() {
 	ConnectionBox *box = new ConnectionBox();
 	connect(box, SIGNAL(closed()), this, SLOT(updateConnectionType()), Qt::QueuedConnection);
 	Ui::showLayer(box);
 }
+#endif
 
 void SettingsInner::onUsername() {
 	UsernameBox *box = new UsernameBox();
@@ -1486,7 +1563,7 @@ void SettingsInner::onSoundNotify() {
 
 void SettingsInner::onIncludeMuted() {
 	cSetIncludeMuted(_includeMuted.checked());
-	if (App::wnd()) App::wnd()->updateCounter();
+	Notify::unreadCounterUpdated();
 	Local::writeUserSettings();
 }
 
@@ -1616,6 +1693,53 @@ void SettingsInner::onBackFromFile() {
 	updateChatBackground();
 }
 
+float64 SettingsInner::radialProgress() const {
+	if (auto m = App::main()) {
+		return m->chatBackgroundProgress();
+	}
+	return 1.;
+}
+
+bool SettingsInner::radialLoading() const {
+	if (auto m = App::main()) {
+		if (m->chatBackgroundLoading()) {
+			m->checkChatBackground();
+			if (m->chatBackgroundLoading()) {
+				return true;
+			} else {
+				const_cast<SettingsInner*>(this)->updateChatBackground();
+			}
+		}
+	}
+	return false;
+}
+
+QRect SettingsInner::radialRect() const {
+	auto left = _left;
+	auto top = _tileBackground.y() - st::setLittleSkip - st::setBackgroundSize;
+	return QRect(left, top, st::setBackgroundSize, st::setBackgroundSize);
+}
+
+void SettingsInner::radialStart() {
+	if (radialLoading() && !_radial.animating()) {
+		_radial.start(radialProgress());
+		if (auto shift = radialTimeShift()) {
+			_radial.update(radialProgress(), !radialLoading(), getms() + shift);
+		}
+	}
+}
+
+uint64 SettingsInner::radialTimeShift() const {
+	return st::radialDuration;
+}
+
+void SettingsInner::step_radial(uint64 ms, bool timer) {
+	_radial.update(radialProgress(), !radialLoading(), ms + radialTimeShift());
+	if (timer && _radial.animating()) {
+		updateBackgroundRect();
+	}
+}
+
 void SettingsInner::updateChatBackground() {
 	int32 size = st::setBackgroundSize * cIntRetinaFactor();
 	QImage back(size, size, QImage::Format_ARGB32_Premultiplied);
@@ -1632,6 +1756,7 @@ void SettingsInner::updateChatBackground() {
 	_background = QPixmap::fromImage(back);
 	_background.setDevicePixelRatio(cRetinaFactor());
 	_needBackgroundUpdate = false;
+
 	updateBackgroundRect();
 }
 
@@ -1639,6 +1764,9 @@ void SettingsInner::needBackgroundUpdate(bool tile) {
 	_needBackgroundUpdate = true;
 	_tileBackground.setChecked(tile);
 	updateChatBackground();
+	if (radialLoading()) {
+		radialStart();
+	}
 }
 
 void SettingsInner::onTileBackground() {
@@ -1806,7 +1934,7 @@ void SettingsInner::onPhotoUpdateDone(PeerId peer) {
 	update();
 }
 
-SettingsWidget::SettingsWidget(Window *parent) : TWidget(parent)
+SettingsWidget::SettingsWidget(MainWindow *parent) : TWidget(parent)
 , _a_show(animation(this, &SettingsWidget::step_show))
 , _scroll(this, st::setScroll)
 , _inner(this)
@@ -1836,7 +1964,7 @@ void SettingsWidget::animShow(const QPixmap &bgAnimCache, bool back) {
 	(back ? _cacheUnder : _cacheOver) = myGrab(this);
 	hideAll();
 
-	a_coordUnder = back ? anim::ivalue(-qFloor(st::slideShift * width()), 0) : anim::ivalue(0, -qFloor(st::slideShift * width()));
+	a_coordUnder = back ? anim::ivalue(-st::slideShift, 0) : anim::ivalue(0, -st::slideShift);
 	a_coordOver = back ? anim::ivalue(0, width()) : anim::ivalue(width(), 0);
 	a_shadow = back ? anim::fvalue(1, 0) : anim::fvalue(0, 1);
 	_a_show.start();
@@ -1888,7 +2016,7 @@ void SettingsWidget::paintEvent(QPaintEvent *e) {
 		}
 		p.drawPixmap(a_coordOver.current(), 0, _cacheOver);
 		p.setOpacity(a_shadow.current());
-		p.drawPixmap(QRect(a_coordOver.current() - st::slideShadow.pxWidth(), 0, st::slideShadow.pxWidth(), height()), App::sprite(), st::slideShadow);
+		p.drawPixmap(QRect(a_coordOver.current() - st::slideShadow.pxWidth(), 0, st::slideShadow.pxWidth(), height()), App::sprite(), st::slideShadow.rect());
 	} else {
 		p.fillRect(rect(), st::setBG->b);
 	}
@@ -1947,10 +2075,6 @@ void SettingsWidget::updateConnectionType() {
 
 void SettingsWidget::rpcClear() {
 	_inner.rpcClear();
-}
-
-void SettingsWidget::usernameChanged() {
-	_inner.usernameChanged();
 }
 
 void SettingsWidget::setInnerFocus() {

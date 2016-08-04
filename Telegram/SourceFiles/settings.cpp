@@ -19,8 +19,9 @@ Full license: https://github.com/telegramdesktop/tdesktop/blob/master/LICENSE
 Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #include "stdafx.h"
-#include "pspecific.h"
 #include "settings.h"
+
+#include "pspecific.h"
 #include "lang.h"
 
 bool gRtl = false;
@@ -28,11 +29,9 @@ Qt::LayoutDirection gLangDir = gRtl ? Qt::RightToLeft : Qt::LeftToRight;
 
 QString gArguments;
 
-mtpDcOptions gDcOptions;
-
-bool gDevVersion = DevVersion;
-uint64 gBetaVersion = BETA_VERSION;
-uint64 gRealBetaVersion = BETA_VERSION;
+bool gAlphaVersion = AppAlphaVersion;
+uint64 gBetaVersion = AppBetaVersion;
+uint64 gRealBetaVersion = AppBetaVersion;
 QByteArray gBetaPrivateKey;
 
 bool gTestMode = false;
@@ -80,8 +79,6 @@ bool gAskDownloadPath = false;
 QString gDownloadPath;
 QByteArray gDownloadPathBookmark;
 
-bool gNeedConfigResave = false;
-
 bool gCtrlEnter = false;
 
 QPixmapPointer gChatBackground = 0;
@@ -110,9 +107,6 @@ EmojiColorVariants gEmojiVariants;
 
 RecentStickerPreload gRecentStickersPreload;
 RecentStickerPack gRecentStickers;
-StickerSets gStickerSets;
-StickerSetsOrder gStickerSetsOrder;
-uint64 gLastStickersUpdate = 0;
 
 SavedGifs gSavedGifs;
 uint64 gLastSavedGifsUpdate = 0;

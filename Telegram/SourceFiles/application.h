@@ -20,7 +20,7 @@ Copyright (c) 2014-2016 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-#include "window.h"
+#include "mainwindow.h"
 #include "pspecific.h"
 
 class UpdateChecker;
@@ -56,7 +56,7 @@ private:
 	QLocalServer _localServer;
 	QLocalSocket _localSocket;
 	LocalClients _localClients;
-	bool _secondInstance;
+	bool _secondInstance = false;
 
 	void singleInstanceChecked();
 
@@ -98,10 +98,10 @@ public slots:
 private:
 
 	SingleTimer _updateCheckTimer;
-	QNetworkReply *_updateReply;
+	QNetworkReply *_updateReply = nullptr;
 	QNetworkAccessManager _updateManager;
-	QThread *_updateThread;
-	UpdateChecker *_updateChecker;
+	QThread *_updateThread = nullptr;
+	UpdateChecker *_updateChecker = nullptr;
 
 #endif
 };
@@ -153,13 +153,12 @@ public:
 	~AppClass();
 
 	static AppClass *app();
-	static Window *wnd();
+	static MainWindow *wnd();
 	static MainWidget *main();
 
 	FileUploader *uploader();
 	void uploadProfilePhoto(const QImage &tosend, const PeerId &peerId);
 	void regPhotoUpdate(const PeerId &peer, const FullMsgId &msgId);
-	void clearPhotoUpdates();
 	bool isPhotoUpdating(const PeerId &peer);
 	void cancelPhotoUpdate(const PeerId &peer);
 
@@ -195,10 +194,16 @@ public slots:
 	void photoUpdated(const FullMsgId &msgId, bool silent, const MTPInputFile &file);
 
 	void onSwitchDebugMode();
+	void onSwitchWorkMode();
 	void onSwitchTestMode();
 
 	void killDownloadSessions();
 	void onAppStateChanged(Qt::ApplicationState state);
+
+	void call_handleHistoryUpdate();
+	void call_handleUnreadCounterUpdate();
+	void call_handleFileDialogQueue();
+	void call_handleDelayedPeerUpdates();
 
 private:
 
@@ -209,7 +214,7 @@ private:
 
 	uint64 _lastActionTime;
 
-	Window *_window;
+	MainWindow *_window;
 	FileUploader *_uploader;
 	Translator *_translator;
 
